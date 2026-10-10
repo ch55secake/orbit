@@ -1,0 +1,7 @@
+version: 1
+servers:
+  # For a remote Stardust agent, forward its loopback port first:
+  # ssh -N -L 8787:127.0.0.1:8787 user@example.com
+  - name: local-stardust
+    address: http://127.0.0.1:8787
+    description: Local SSH-forwarded Stardust agent
