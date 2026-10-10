@@ -10,6 +10,8 @@ over HTTP, normally through SSH port forwarding.
 - `orbit version`: print the application version
 - `orbit servers list`: list configured servers
 - `orbit servers add`: register a Stardust endpoint locally
+- `orbit servers edit`: update a registered Stardust endpoint
+- `orbit servers remove`: remove a registered Stardust endpoint
 - `orbit status`: fetch CPU, memory, disk, and uptime metrics
 - No remote command execution and no hosted service required
 
@@ -33,10 +35,18 @@ orbit servers add \
   --name server-01 \
   --address http://127.0.0.1:8787 \
   --description "Production web server"
+orbit servers edit \
+  --name server-01 \
+  --address https://127.0.0.1:8787 \
+  --description "Production web server (TLS)"
 orbit servers list
 orbit status
 orbit
 ```
+
+Server addresses must be absolute `http://` or `https://` URLs with a host.
+Credentials, query strings, and fragments are not accepted. Remove a server
+with `orbit servers remove --name server-01`.
 
 For a remote agent, keep Stardust bound to loopback and create a tunnel:
 
