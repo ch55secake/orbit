@@ -58,6 +58,17 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsMalformedYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("version: [\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "read config") {
+		t.Fatalf("load malformed config error = %v", err)
+	}
+}
+
 func TestServerMutations(t *testing.T) {
 	cfg := Config{Version: 1}
 	if err := cfg.AddServer(Server{Name: " local ", Address: " http://127.0.0.1:8787 ", Description: " local "}); err != nil {
