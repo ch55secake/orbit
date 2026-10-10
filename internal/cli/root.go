@@ -74,6 +74,8 @@ func serversCommand(configPath *string) *cobra.Command {
 			},
 		},
 		addServerCommand(configPath),
+		editServerCommand(configPath),
+		removeServerCommand(configPath),
 	)
 	return servers
 }
@@ -100,6 +102,81 @@ func addServerCommand(configPath *string) *cobra.Command {
 	command.Flags().StringVar(&name, "name", "", "server name")
 	command.Flags().StringVar(&address, "address", "", "Stardust base URL")
 	command.Flags().StringVar(&description, "description", "", "optional description")
+	return command
+}
+
+func editServerCommand(configPath *string) *cobra.Command {
+	var name, newName, address, description string
+	command := &cobra.Command{
+		Use:     "edit",
+		Aliases: []string{"update"},
+		Short:   "Update a configured server",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if strings.TrimSpace(name) == "" {
+				return fmt.Errorf("--name is required")
+			}
+			if !cmd.Flags().Changed("new-name") && !cmd.Flags().Changed("address") && !cmd.Flags().Changed("description") {
+				return fmt.Errorf("at least one of --new-name, --address, or --description is required")
+			}
+
+			cfg, err := config.Load(*configPath)
+			if err != nil {
+				return err
+			}
+			var updated config.Server
+			found := false
+			for _, server := range cfg.Servers {
+				if strings.TrimSpace(server.Name) == strings.TrimSpace(name) {
+					updated = server
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("server %q not found", strings.TrimSpace(name))
+			}
+			if cmd.Flags().Changed("new-name") {
+				updated.Name = newName
+			}
+			if cmd.Flags().Changed("address") {
+				updated.Address = address
+			}
+			if cmd.Flags().Changed("description") {
+				updated.Description = description
+			}
+			if err := cfg.UpdateServer(name, updated); err != nil {
+				return err
+			}
+			return config.Save(*configPath, cfg)
+		},
+	}
+	command.Flags().StringVar(&name, "name", "", "existing server name")
+	command.Flags().StringVar(&newName, "new-name", "", "new server name")
+	command.Flags().StringVar(&address, "address", "", "new Stardust base URL")
+	command.Flags().StringVar(&description, "description", "", "new description (empty clears it)")
+	return command
+}
+
+func removeServerCommand(configPath *string) *cobra.Command {
+	var name string
+	command := &cobra.Command{
+		Use:   "remove",
+		Short: "Remove a configured server",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if strings.TrimSpace(name) == "" {
+				return fmt.Errorf("--name is required")
+			}
+			cfg, err := config.Load(*configPath)
+			if err != nil {
+				return err
+			}
+			if err := cfg.RemoveServer(name); err != nil {
+				return err
+			}
+			return config.Save(*configPath, cfg)
+		},
+	}
+	command.Flags().StringVar(&name, "name", "", "server name")
 	return command
 }
 
