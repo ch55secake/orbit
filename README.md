@@ -89,5 +89,5 @@ make build
 make lint
 ```
 
-The release workflow publishes automatically when changes are pushed to `main`;
-it can also be started manually from GitHub Actions.
+The release workflow publishes automatically when a version tag matching `v*`
+is pushed; it can also be started manually from GitHub Actions.
