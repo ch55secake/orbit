@@ -9,20 +9,20 @@ import (
 	"strings"
 	"unicode"
 
-	"gopkg.in/yaml.v3"
+	"github.com/spf13/viper"
 )
 
 const currentVersion = 1
 
 type Config struct {
-	Version int      `yaml:"version"`
-	Servers []Server `yaml:"servers"`
+	Version int      `mapstructure:"version" yaml:"version"`
+	Servers []Server `mapstructure:"servers" yaml:"servers"`
 }
 
 type Server struct {
-	Name        string `yaml:"name"`
-	Address     string `yaml:"address"`
-	Description string `yaml:"description,omitempty"`
+	Name        string `mapstructure:"name" yaml:"name"`
+	Address     string `mapstructure:"address" yaml:"address"`
+	Description string `mapstructure:"description" yaml:"description,omitempty"`
 }
 
 func DefaultPath() string {
@@ -40,16 +40,18 @@ func Load(path string) (Config, error) {
 	if path == "" {
 		path = DefaultPath()
 	}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return Config{Version: currentVersion}, nil
-	}
-	if err != nil {
+	settings := viper.New()
+	settings.SetConfigFile(path)
+	settings.SetConfigType("yaml")
+	if err := settings.ReadInConfig(); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Config{Version: currentVersion}, nil
+		}
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
 
 	cfg := Config{Version: currentVersion}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := settings.Unmarshal(&cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
 	if cfg.Version == 0 {
@@ -72,14 +74,17 @@ func Save(path string, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate config: %w", err)
 	}
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("encode config: %w", err)
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+
+	settings := viper.New()
+	settings.SetConfigFile(path)
+	settings.SetConfigType("yaml")
+	settings.SetConfigPermissions(0o600)
+	settings.Set("version", cfg.Version)
+	settings.Set("servers", cfg.Servers)
+	if err := settings.WriteConfigAs(path); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil
