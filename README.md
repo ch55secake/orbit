@@ -89,5 +89,5 @@ make build
 make lint
 ```
 
-The release workflow is configured for manual dispatch and does not publish
-anything automatically.
+The release workflow publishes automatically when changes are pushed to `main`;
+it can also be started manually from GitHub Actions.
