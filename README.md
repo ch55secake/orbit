@@ -89,5 +89,7 @@ make build
 make lint
 ```
 
-The release workflow publishes automatically when a version tag matching `v*`
-is pushed; it can also be started manually from GitHub Actions.
+The release workflow creates a prerelease tag (`v0.0.0-main.<run>`) and
+publishes automatically for pushes to `main`. Explicit version tags matching
+`v*` are also released, and the workflow can be started manually from GitHub
+Actions.
