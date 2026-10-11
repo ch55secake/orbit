@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -37,14 +36,23 @@ func Render(data DashboardData) string {
 	case data.Selected == nil:
 		detail = styles.Subtitle.Render("Select a server to inspect its metrics")
 	case data.Selected.Error != nil:
-		detail = styles.Bad.Render(fmt.Sprintf("%s: %v", data.Selected.Server.Name, data.Selected.Error))
+		lines := []string{styles.Title.Render(data.Selected.Server.Name)}
+		if status := tunnelStatus(data.Selected); status != "" {
+			lines = append(lines, status)
+		}
+		lines = append(lines, styles.Bad.Render(data.Selected.Error.Error()))
+		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	case data.Selected.Metrics != nil:
 		metrics := data.Selected.Metrics.Data
-		detail = lipgloss.JoinVertical(lipgloss.Left,
-			styles.Title.Render(data.Selected.Server.Name),
+		lines := []string{styles.Title.Render(data.Selected.Server.Name)}
+		if status := tunnelStatus(data.Selected); status != "" {
+			lines = append(lines, status)
+		}
+		lines = append(lines,
 			styles.Subtitle.Render(metrics.Hostname+" · "+metrics.OS.Name+" "+metrics.OS.PlatformVersion),
 			components.Summary(metrics),
 		)
+		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	}
 	if data.Message != "" {
 		detail = lipgloss.JoinVertical(lipgloss.Left, detail, styles.Bad.Render(data.Message))
@@ -61,4 +69,15 @@ func Render(data DashboardData) string {
 		"",
 		footer,
 	))
+}
+
+func tunnelStatus(status *server.Status) string {
+	if status.Server.SSH == nil {
+		return ""
+	}
+	state := status.TunnelState
+	if state == "" {
+		state = "unknown"
+	}
+	return styles.Subtitle.Render("SSH tunnel: " + state)
 }
