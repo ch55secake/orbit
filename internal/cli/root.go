@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -9,7 +10,9 @@ import (
 
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/config"
+	"github.com/ch55secake/orbit/internal/server"
 	"github.com/ch55secake/orbit/internal/tui"
+	"github.com/ch55secake/orbit/internal/tunnel"
 	"github.com/spf13/cobra"
 )
 
@@ -66,7 +69,11 @@ func serversCommand(configPath *string) *cobra.Command {
 					if description != "" {
 						description = " — " + description
 					}
-					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s%s\n", server.Name, server.Address, description); err != nil {
+					connection := ""
+					if server.SSH != nil {
+						connection = " [SSH via " + server.SSH.Host + "]"
+					}
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s%s%s\n", server.Name, server.Address, connection, description); err != nil {
 						return err
 					}
 				}
@@ -82,18 +89,23 @@ func serversCommand(configPath *string) *cobra.Command {
 
 func addServerCommand(configPath *string) *cobra.Command {
 	var name, address, description string
+	var ssh sshFlags
 	command := &cobra.Command{
 		Use:   "add",
 		Short: "Register a server in local configuration",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if strings.TrimSpace(name) == "" || strings.TrimSpace(address) == "" {
 				return fmt.Errorf("--name and --address are required")
+			}
+			sshConfig, err := ssh.configForAdd(cmd)
+			if err != nil {
+				return err
 			}
 			cfg, err := config.Load(*configPath)
 			if err != nil {
 				return err
 			}
-			if err := cfg.AddServer(config.Server{Name: name, Address: address, Description: description}); err != nil {
+			if err := cfg.AddServer(config.Server{Name: name, Address: address, Description: description, SSH: sshConfig}); err != nil {
 				return err
 			}
 			return config.Save(*configPath, cfg)
@@ -102,11 +114,14 @@ func addServerCommand(configPath *string) *cobra.Command {
 	command.Flags().StringVar(&name, "name", "", "server name")
 	command.Flags().StringVar(&address, "address", "", "Stardust base URL")
 	command.Flags().StringVar(&description, "description", "", "optional description")
+	ssh.addFlags(command)
 	return command
 }
 
 func editServerCommand(configPath *string) *cobra.Command {
 	var name, newName, address, description string
+	var ssh sshFlags
+	var direct bool
 	command := &cobra.Command{
 		Use:     "edit",
 		Aliases: []string{"update"},
@@ -115,8 +130,11 @@ func editServerCommand(configPath *string) *cobra.Command {
 			if strings.TrimSpace(name) == "" {
 				return fmt.Errorf("--name is required")
 			}
-			if !cmd.Flags().Changed("new-name") && !cmd.Flags().Changed("address") && !cmd.Flags().Changed("description") {
+			if !cmd.Flags().Changed("new-name") && !cmd.Flags().Changed("address") && !cmd.Flags().Changed("description") && !ssh.changed(cmd) && !cmd.Flags().Changed("direct") {
 				return fmt.Errorf("at least one of --new-name, --address, or --description is required")
+			}
+			if direct && ssh.changed(cmd) {
+				return fmt.Errorf("--direct cannot be combined with SSH tunnel settings")
 			}
 
 			cfg, err := config.Load(*configPath)
@@ -144,6 +162,20 @@ func editServerCommand(configPath *string) *cobra.Command {
 			if cmd.Flags().Changed("description") {
 				updated.Description = description
 			}
+			if direct {
+				updated.SSH = nil
+			} else if ssh.changed(cmd) {
+				if updated.SSH == nil {
+					updated.SSH = &config.SSHConfig{RemoteHost: "127.0.0.1"}
+				}
+				ssh.apply(cmd, updated.SSH)
+				if strings.TrimSpace(updated.SSH.Host) == "" {
+					return fmt.Errorf("--ssh-host is required when configuring an SSH tunnel")
+				}
+				if updated.SSH.RemotePort == 0 {
+					return fmt.Errorf("--ssh-remote-port is required when configuring an SSH tunnel")
+				}
+			}
 			if err := cfg.UpdateServer(name, updated); err != nil {
 				return err
 			}
@@ -154,7 +186,77 @@ func editServerCommand(configPath *string) *cobra.Command {
 	command.Flags().StringVar(&newName, "new-name", "", "new server name")
 	command.Flags().StringVar(&address, "address", "", "new Stardust base URL")
 	command.Flags().StringVar(&description, "description", "", "new description (empty clears it)")
+	command.Flags().BoolVar(&direct, "direct", false, "remove SSH tunnel settings")
+	ssh.addFlags(command)
 	return command
+}
+
+type sshFlags struct {
+	host         string
+	user         string
+	port         int
+	identityFile string
+	remoteHost   string
+	remotePort   int
+}
+
+func (f *sshFlags) addFlags(command *cobra.Command) {
+	command.Flags().StringVar(&f.host, "ssh-host", "", "SSH host or ssh_config alias")
+	command.Flags().StringVar(&f.user, "ssh-user", "", "SSH username (defaults to ssh_config)")
+	command.Flags().IntVar(&f.port, "ssh-port", 22, "SSH server port")
+	command.Flags().StringVar(&f.identityFile, "ssh-identity-file", "", "SSH private key file")
+	command.Flags().StringVar(&f.remoteHost, "ssh-remote-host", "127.0.0.1", "Stardust host as seen from the SSH server")
+	command.Flags().IntVar(&f.remotePort, "ssh-remote-port", 0, "Stardust port as seen from the SSH server")
+}
+
+func (f sshFlags) changed(command *cobra.Command) bool {
+	for _, name := range []string{"ssh-host", "ssh-user", "ssh-port", "ssh-identity-file", "ssh-remote-host", "ssh-remote-port"} {
+		if command.Flags().Changed(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (f sshFlags) configForAdd(command *cobra.Command) (*config.SSHConfig, error) {
+	if !f.changed(command) {
+		return nil, nil
+	}
+	if strings.TrimSpace(f.host) == "" {
+		return nil, fmt.Errorf("--ssh-host is required when configuring an SSH tunnel")
+	}
+	if f.remotePort == 0 {
+		return nil, fmt.Errorf("--ssh-remote-port is required when configuring an SSH tunnel")
+	}
+	return &config.SSHConfig{
+		Host:         f.host,
+		User:         f.user,
+		Port:         f.port,
+		IdentityFile: f.identityFile,
+		RemoteHost:   f.remoteHost,
+		RemotePort:   f.remotePort,
+	}, nil
+}
+
+func (f sshFlags) apply(command *cobra.Command, target *config.SSHConfig) {
+	if command.Flags().Changed("ssh-host") {
+		target.Host = f.host
+	}
+	if command.Flags().Changed("ssh-user") {
+		target.User = f.user
+	}
+	if command.Flags().Changed("ssh-port") {
+		target.Port = f.port
+	}
+	if command.Flags().Changed("ssh-identity-file") {
+		target.IdentityFile = f.identityFile
+	}
+	if command.Flags().Changed("ssh-remote-host") {
+		target.RemoteHost = f.remoteHost
+	}
+	if command.Flags().Changed("ssh-remote-port") {
+		target.RemotePort = f.remotePort
+	}
 }
 
 func removeServerCommand(configPath *string) *cobra.Command {
@@ -190,35 +292,42 @@ func statusCommand(configPath *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return printStatus(cmd.Context(), cmd.OutOrStdout(), cfg, client.New(timeout))
+			tunnels := tunnel.NewManager()
+			statusErr := printStatus(cmd.Context(), cmd.OutOrStdout(), cfg, client.New(timeout), tunnels)
+			return errors.Join(statusErr, tunnels.Close())
 		},
 	}
 	command.Flags().DurationVar(&timeout, "timeout", 5*time.Second, "HTTP request timeout")
 	return command
 }
 
-func printStatus(ctx context.Context, out io.Writer, cfg config.Config, apiClient *client.Client) error {
+func printStatus(ctx context.Context, out io.Writer, cfg config.Config, apiClient server.MetricsClient, tunnels server.TunnelManager) error {
 	if len(cfg.Servers) == 0 {
 		_, err := fmt.Fprintln(out, "No servers configured.")
 		return err
 	}
-	for index, server := range cfg.Servers {
+	for index, target := range cfg.Servers {
 		if index > 0 {
 			if _, err := fmt.Fprintln(out); err != nil {
 				return err
 			}
 		}
-		if _, err := fmt.Fprintf(out, "%s (%s)\n", server.Name, server.Address); err != nil {
+		if _, err := fmt.Fprintf(out, "%s (%s)\n", target.Name, target.Address); err != nil {
 			return err
 		}
-		response, err := apiClient.Metrics(ctx, server.Address)
-		if err != nil {
-			if _, writeErr := fmt.Fprintf(out, "  status: offline (%v)\n", err); writeErr != nil {
+		status := server.FetchMetrics(ctx, target, apiClient, tunnels)
+		if target.SSH != nil {
+			if _, err := fmt.Fprintf(out, "  tunnel: %s\n", status.TunnelState); err != nil {
+				return err
+			}
+		}
+		if status.Error != nil {
+			if _, writeErr := fmt.Fprintf(out, "  status: offline (%v)\n", status.Error); writeErr != nil {
 				return writeErr
 			}
 			continue
 		}
-		data := response.Data
+		data := status.Metrics.Data
 		if _, err := fmt.Fprintln(out, "  status: online"); err != nil {
 			return err
 		}

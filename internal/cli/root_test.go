@@ -2,10 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ch55secake/orbit/internal/client"
+	"github.com/ch55secake/orbit/internal/config"
+	"github.com/ch55secake/orbit/internal/server"
 )
 
 func TestServerCommands(t *testing.T) {
@@ -77,6 +83,111 @@ func TestAddServerRejectsInvalidAddressBeforeWriting(t *testing.T) {
 		t.Fatalf("invalid add config stat error = %v, want file to be absent", statErr)
 	}
 }
+
+func TestServerCommandsConfigureAndDisableSSHTunnel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if _, err := execute(t, []string{
+		"--config", path, "servers", "add",
+		"--name", "remote", "--address", "http://127.0.0.1:18787",
+		"--ssh-host", "prod", "--ssh-user", "orbit", "--ssh-port", "2222",
+		"--ssh-identity-file", "/keys/orbit", "--ssh-remote-host", "127.0.0.1", "--ssh-remote-port", "8787",
+	}); err != nil {
+		t.Fatalf("add SSH server: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if got := cfg.Servers[0].SSH; got == nil || got.Host != "prod" || got.User != "orbit" || got.Port != 2222 || got.IdentityFile != "/keys/orbit" || got.RemotePort != 8787 {
+		t.Fatalf("configured SSH settings = %+v", got)
+	}
+	listOutput, err := execute(t, []string{"--config", path, "servers", "list"})
+	if err != nil || !strings.Contains(listOutput, "[SSH via prod]") {
+		t.Fatalf("SSH server list output = %q, err = %v", listOutput, err)
+	}
+
+	if _, err := execute(t, []string{"--config", path, "servers", "edit", "--name", "remote", "--ssh-user", "deploy"}); err != nil {
+		t.Fatalf("edit SSH user: %v", err)
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("reload edited config: %v", err)
+	}
+	if cfg.Servers[0].SSH.User != "deploy" || cfg.Servers[0].SSH.Host != "prod" {
+		t.Fatalf("edited SSH settings = %+v", cfg.Servers[0].SSH)
+	}
+
+	if _, err := execute(t, []string{"--config", path, "servers", "edit", "--name", "remote", "--direct"}); err != nil {
+		t.Fatalf("disable SSH tunnel: %v", err)
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("reload direct config: %v", err)
+	}
+	if cfg.Servers[0].SSH != nil {
+		t.Fatalf("SSH config remains after --direct: %+v", cfg.Servers[0].SSH)
+	}
+}
+
+func TestPrintStatusReportsTunnelStateAndErrors(t *testing.T) {
+	target := config.Server{
+		Name:    "remote",
+		Address: "http://127.0.0.1:18787",
+		SSH:     &config.SSHConfig{Host: "prod", RemotePort: 8787},
+	}
+	t.Run("connected", func(t *testing.T) {
+		var output bytes.Buffer
+		api := &statusMetricsClient{response: client.MetricsResponse{Data: client.MetricsData{CPU: client.CPU{UsagePercent: 12}}}}
+		if err := printStatus(context.Background(), &output, config.Config{Servers: []config.Server{target}}, api, &statusTunnelManager{}); err != nil {
+			t.Fatalf("print status: %v", err)
+		}
+		for _, expected := range []string{"tunnel: connected", "status: online", "CPU: 12.0%"} {
+			if !strings.Contains(output.String(), expected) {
+				t.Errorf("status output %q does not contain %q", output.String(), expected)
+			}
+		}
+	})
+
+	t.Run("startup error", func(t *testing.T) {
+		var output bytes.Buffer
+		api := &statusMetricsClient{}
+		tunnels := &statusTunnelManager{ensureErr: errors.New("SSH key rejected")}
+		if err := printStatus(context.Background(), &output, config.Config{Servers: []config.Server{target}}, api, tunnels); err != nil {
+			t.Fatalf("print status: %v", err)
+		}
+		for _, expected := range []string{"tunnel: disconnected", "status: offline", "SSH key rejected"} {
+			if !strings.Contains(output.String(), expected) {
+				t.Errorf("status output %q does not contain %q", output.String(), expected)
+			}
+		}
+		if api.calls != 0 {
+			t.Fatalf("metrics calls = %d, want no request after tunnel startup fails", api.calls)
+		}
+	})
+}
+
+type statusMetricsClient struct {
+	response client.MetricsResponse
+	err      error
+	calls    int
+}
+
+func (f *statusMetricsClient) Metrics(context.Context, string) (client.MetricsResponse, error) {
+	f.calls++
+	return f.response, f.err
+}
+
+type statusTunnelManager struct {
+	ensureErr error
+}
+
+func (f *statusTunnelManager) Ensure(context.Context, config.Server) error {
+	return f.ensureErr
+}
+
+func (*statusTunnelManager) Reconnect(context.Context, config.Server) error { return nil }
+
+var _ server.TunnelManager = (*statusTunnelManager)(nil)
 
 func execute(t *testing.T, args []string) (string, error) {
 	t.Helper()

@@ -22,6 +22,32 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadSSHServer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	want := Server{
+		Name:    "remote",
+		Address: "http://127.0.0.1:18787",
+		SSH: &SSHConfig{
+			Host:         "prod",
+			User:         "orbit",
+			Port:         2222,
+			IdentityFile: "/home/orbit/.ssh/id_ed25519",
+			RemoteHost:   "127.0.0.1",
+			RemotePort:   8787,
+		},
+	}
+	if err := Save(path, Config{Servers: []Server{want}}); err != nil {
+		t.Fatalf("save SSH server: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load SSH server: %v", err)
+	}
+	if len(cfg.Servers) != 1 || *cfg.Servers[0].SSH != *want.SSH {
+		t.Fatalf("loaded SSH settings = %+v, want %+v", cfg.Servers, want)
+	}
+}
+
 func TestMissingConfigIsEmpty(t *testing.T) {
 	cfg, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
 	if err != nil {
@@ -127,6 +153,55 @@ func TestValidateRejectsDuplicateNames(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsConflictingSSHTunnelPorts(t *testing.T) {
+	ssh := &SSHConfig{Host: "prod", RemotePort: 8787}
+	cfg := Config{Version: 1, Servers: []Server{
+		{Name: "one", Address: "http://127.0.0.1:18787", SSH: ssh},
+		{Name: "two", Address: "http://127.0.0.2:018787", SSH: ssh},
+	}}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "shares local SSH tunnel port 18787") {
+		t.Fatalf("conflicting tunnel port error = %v", err)
+	}
+}
+
+func TestValidateSSHSettings(t *testing.T) {
+	base := Server{
+		Name:    "remote",
+		Address: "http://127.0.0.1:18787",
+		SSH:     &SSHConfig{Host: "prod", User: "orbit", RemotePort: 8787},
+	}
+	tests := []struct {
+		name    string
+		server  Server
+		message string
+	}{
+		{name: "missing host", server: sshServer(func(ssh *SSHConfig) { ssh.Host = "" }), message: "SSH host must not be empty"},
+		{name: "option-like host", server: sshServer(func(ssh *SSHConfig) { ssh.Host = "-oProxyCommand=bad" }), message: "SSH host"},
+		{name: "invalid user", server: sshServer(func(ssh *SSHConfig) { ssh.User = "orbit;id" }), message: "SSH user"},
+		{name: "invalid SSH port", server: sshServer(func(ssh *SSHConfig) { ssh.Port = 65536 }), message: "SSH port"},
+		{name: "missing remote port", server: sshServer(func(ssh *SSHConfig) { ssh.RemotePort = 0 }), message: "SSH remote port"},
+		{name: "non-loopback remote address", server: sshServer(func(ssh *SSHConfig) { ssh.RemoteHost = "10.0.0.5" }), message: "must be localhost or a loopback IP"},
+		{name: "public local bind", server: sshServer(func(s *SSHConfig) {}), message: "loopback IP"},
+		{name: "missing local port", server: sshServerAddress("http://127.0.0.1", func(*SSHConfig) {}), message: "include a local port"},
+		{name: "local path", server: sshServerAddress("http://127.0.0.1:18787/api", func(*SSHConfig) {}), message: "must not include a path"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := test.server
+			if test.name == "public local bind" {
+				server.Address = "http://192.0.2.10:18787"
+			}
+			if err := server.Validate(); err == nil || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("validation error = %v, want message containing %q", err, test.message)
+			}
+		})
+	}
+
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid SSH settings rejected: %v", err)
+	}
+}
+
 func TestSaveRejectsInvalidConfigWithoutOverwriting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("existing\n"), 0o640); err != nil {
@@ -164,4 +239,14 @@ func TestSavePreservesExistingFileMode(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o640 {
 		t.Fatalf("config mode = %o, want 640", got)
 	}
+}
+
+func sshServer(change func(*SSHConfig)) Server {
+	return sshServerAddress("http://127.0.0.1:18787", change)
+}
+
+func sshServerAddress(address string, change func(*SSHConfig)) Server {
+	ssh := &SSHConfig{Host: "prod", User: "orbit", RemotePort: 8787}
+	change(ssh)
+	return Server{Name: "remote", Address: address, SSH: ssh}
 }

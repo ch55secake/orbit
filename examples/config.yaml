@@ -1,7 +1,18 @@
 version: 1
 servers:
-  # For a remote Stardust agent, forward its loopback port first:
-  # ssh -N -L 8787:127.0.0.1:8787 user@example.com
   - name: local-stardust
     address: http://127.0.0.1:8787
-    description: Local SSH-forwarded Stardust agent
+    description: Local Stardust agent
+  # A remote agent can instead be reached through an Orbit-managed SSH tunnel.
+  # Bind the local address to loopback; remote_host should be where Stardust
+  # listens from the SSH server's perspective.
+  - name: remote-stardust
+    address: http://127.0.0.1:18787
+    description: Remote Stardust agent
+    ssh:
+      host: server-01
+      user: ubuntu
+      port: 22
+      identity_file: ~/.ssh/id_ed25519
+      remote_host: 127.0.0.1
+      remote_port: 8787
