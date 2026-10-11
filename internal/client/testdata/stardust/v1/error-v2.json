@@ -1,0 +1,7 @@
+{
+  "api_version": "v2",
+  "error": {
+    "code": "incompatible_contract",
+    "message": "client version is no longer supported"
+  }
+}

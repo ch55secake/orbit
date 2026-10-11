@@ -80,6 +80,9 @@ seconds. Partial metric availability is represented by `data.errors`; an HTTP
 }
 ```
 
+Versioned response fixtures and client compatibility tests are in
+`internal/client/testdata/stardust/v1`.
+
 ## Development
 
 ```sh
