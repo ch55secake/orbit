@@ -103,6 +103,11 @@ sudo handle passwords interactively; Orbit never stores them. `--yes` explicitly
 confirms binary replacement and service restart. The agent must run on the SSH
 host's loopback interface, not a different machine behind that host.
 
+In the dashboard, press `u` on an SSH-configured server, then `y` to confirm an
+update to the latest release. Enter, `n`, or Esc cancels without connecting.
+SSH/sudo prompts run in the terminal; Orbit returns to the dashboard, refreshes
+metrics, and displays the outcome afterward. Use the CLI to select a specific tag.
+
 The updater detects the remote OS/architecture, downloads a published release,
 verifies its SHA-256 checksum, atomically replaces the binary used by the existing
 service, and checks `/api/v1/health` on the configured remote port. Listener ports,
@@ -119,6 +124,7 @@ or automatic background updates are performed.
 - `PgUp`/`PgDown`: move a page; `Home`/`End`: jump to the first/last server
 - `r`: refresh all metrics
 - `s`: open the selected server's SSH shell; exiting returns to the dashboard
+- `u`: confirm an update of the selected server's Stardust service to latest
 - `?`: toggle help and the active configuration path
 - `q` or `Ctrl-C`: exit
 

@@ -19,6 +19,7 @@ import (
 	"github.com/ch55secake/orbit/internal/tui/components"
 	"github.com/ch55secake/orbit/internal/tui/views"
 	"github.com/ch55secake/orbit/internal/tunnel"
+	"github.com/ch55secake/orbit/internal/update"
 )
 
 type app struct {
@@ -39,6 +40,9 @@ type app struct {
 	passwordRequest  *passwordRequest
 	passwordInput    []byte
 	passwordPromptMu sync.Mutex
+	updateTarget     *config.Server
+	notice           string
+	noticeError      bool
 }
 
 type metricsMsg struct {
@@ -46,6 +50,11 @@ type metricsMsg struct {
 }
 
 type sessionEndedMsg struct{ err error }
+
+type updateEndedMsg struct {
+	server string
+	err    error
+}
 
 type passwordRequest struct {
 	server   config.Server
@@ -121,12 +130,22 @@ func (m *app) Init() tea.Cmd {
 
 func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case updateEndedMsg:
+		m.noticeError = msg.err != nil
+		m.notice = "Stardust updated on " + msg.server
+		if msg.err != nil {
+			m.notice = "Stardust update failed on " + msg.server + ": " + msg.err.Error()
+		}
+		m.loading = true
+		m.resizeTableHeight()
+		return m, m.fetchMetrics()
 	case sessionEndedMsg:
 		if msg.err != nil {
 			m.message = "SSH session: " + msg.err.Error()
 		}
 		return m, nil
 	case passwordRequestMsg:
+		m.updateTarget = nil
 		if m.passwordRequest != nil {
 			m.passwordRequest.response <- passwordResponse{err: errors.New("SSH password prompt was interrupted")}
 		}
@@ -137,6 +156,9 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if m.passwordRequest != nil {
 			return m, m.updatePasswordInput(msg)
+		}
+		if m.updateTarget != nil {
+			return m, m.updateConfirmation(msg)
 		}
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -156,12 +178,32 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.message = ""
 			return m, tea.ExecProcess(process, func(err error) tea.Msg { return sessionEndedMsg{err: err} })
+		case "u":
+			if m.loading {
+				m.message = "Wait for metrics loading to finish before updating Stardust"
+				return m, nil
+			}
+			cursor := m.table.Cursor()
+			if cursor < 0 || cursor >= len(m.cfg.Servers) {
+				return m, nil
+			}
+			target := m.cfg.Servers[cursor]
+			if err := update.Validate(target, "latest"); err != nil {
+				m.message = err.Error()
+				return m, nil
+			}
+			settings := *target.SSH
+			target.SSH = &settings
+			m.updateTarget = &target
+			m.showHelp = false
+			return m, nil
 		case "r":
 			if m.loading {
 				return m, nil
 			}
 			m.loading = true
 			m.message = ""
+			m.notice = ""
 			return m, m.fetchMetrics()
 		}
 	case tea.WindowSizeMsg:
@@ -189,6 +231,29 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.table, cmd = m.table.Update(msg)
 	m.resizeTableHeight()
 	return m, cmd
+}
+
+func (m *app) updateConfirmation(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "esc", "n", "N", "enter":
+		m.updateTarget = nil
+	case "ctrl+c":
+		m.updateTarget = nil
+		return tea.Quit
+	case "y", "Y":
+		target := *m.updateTarget
+		m.updateTarget = nil
+		process, err := update.Command(m.ctx, target, "latest")
+		if err != nil {
+			m.message = err.Error()
+			return nil
+		}
+		m.notice = ""
+		return tea.ExecProcess(process, func(err error) tea.Msg {
+			return updateEndedMsg{server: target.Name, err: err}
+		})
+	}
+	return nil
 }
 
 func (m *app) resizeTableHeight() {
@@ -221,17 +286,28 @@ func (m *app) resizeTableHeight() {
 	if m.width >= 64 && m.height >= 40 {
 		reserved += 8 // taller Saturn artwork replaces the seven-line masthead
 	}
+	if m.notice != "" {
+		width := max(m.width-4, 1)
+		if m.width >= 110 {
+			width -= views.TableWidth(m.width) + 3
+		}
+		reserved += 1 + lipgloss.Height(lipgloss.NewStyle().Width(width).Render(m.notice))
+	}
 	m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(m.height-reserved, 2)))
 }
 
 func (m *app) View() tea.View {
 	var selected *server.Status
 	var passwordServer string
+	var updateServer string
 	if cursor := m.table.Cursor(); cursor >= 0 && cursor < len(m.statuses) {
 		selected = &m.statuses[cursor]
 	}
 	if m.passwordRequest != nil {
 		passwordServer = m.passwordRequest.server.Name
+	}
+	if m.updateTarget != nil {
+		updateServer = m.updateTarget.Name
 	}
 	view := tea.NewView(views.Render(views.DashboardData{
 		Version:        m.version,
@@ -249,6 +325,11 @@ func (m *app) View() tea.View {
 		PasswordPrompt: m.passwordRequest != nil,
 		PasswordServer: passwordServer,
 		PasswordInput:  strings.Repeat("•", utf8.RuneCount(m.passwordInput)),
+		UpdateConfirm:  m.updateTarget != nil,
+		UpdateServer:   updateServer,
+		Notice:         m.notice,
+		NoticeError:    m.noticeError,
+		CanUpdate:      selected != nil && !m.loading && update.Validate(selected.Server, "latest") == nil,
 	}))
 	view.AltScreen = true
 	return view

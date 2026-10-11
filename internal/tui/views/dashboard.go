@@ -31,6 +31,11 @@ type DashboardData struct {
 	PasswordPrompt bool
 	PasswordServer string
 	PasswordInput  string
+	UpdateConfirm  bool
+	UpdateServer   string
+	Notice         string
+	NoticeError    bool
+	CanUpdate      bool
 }
 
 func Render(data DashboardData) string {
@@ -46,8 +51,8 @@ func Render(data DashboardData) string {
 	}
 	footer := renderMenu(data)
 	help := ""
-	if data.ShowHelp && !data.PasswordPrompt {
-		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · pgup/pgdown page · home/end first/last\ns SSH shell · r refresh · q quit · ? close help")
+	if data.ShowHelp && !data.PasswordPrompt && !data.UpdateConfirm {
+		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · pgup/pgdown page · home/end first/last\ns SSH shell · u update Stardust · r refresh · q quit · ? close help")
 		if data.Width > 0 {
 			help = ansi.Wrap(help, data.Width, "")
 		}
@@ -108,6 +113,9 @@ func Render(data DashboardData) string {
 			if data.Message != "" {
 				available -= 2
 			}
+			if data.Notice != "" {
+				available -= 1 + lipgloss.Height(ansi.Wrap(data.Notice, detailWidth, ""))
+			}
 			if available < 6 && telemetry != "" {
 				available += lipgloss.Height(telemetry) + 1
 				telemetry = ""
@@ -130,6 +138,13 @@ func Render(data DashboardData) string {
 	if data.Message != "" {
 		detail = lipgloss.JoinVertical(lipgloss.Left, detail, "", styles.Warn.Render(data.Message))
 	}
+	if data.Notice != "" {
+		style := styles.Good
+		if data.NoticeError {
+			style = styles.Bad
+		}
+		detail = lipgloss.JoinVertical(lipgloss.Left, detail, "", style.Render(data.Notice))
+	}
 	if detail == "" {
 		detail = styles.Subtitle.Render("Waiting for metrics…")
 	}
@@ -139,6 +154,13 @@ func Render(data DashboardData) string {
 			styles.Subtitle.Render("Used for this connection only; never saved."),
 			"",
 			"Password: "+data.PasswordInput,
+		), detailWidth)
+	} else if data.UpdateConfirm {
+		detail = renderPanel(lipgloss.JoinVertical(lipgloss.Left,
+			styles.Title.Render("Update Stardust on "+data.UpdateServer+"?"),
+			styles.Value.Render("Install the latest published release and restart the service."),
+			styles.Subtitle.Render("Existing service settings are preserved; root/sudo is required."),
+			"", styles.Warn.Render("Press y to confirm. Enter or Esc cancels."),
 		), detailWidth)
 	} else if detailWidth > 0 {
 		detail = ansi.Wrap(detail, detailWidth, "")
@@ -287,6 +309,9 @@ func renderMenu(data DashboardData) string {
 		}
 		return fitMenuHints(hints, data.Width)
 	}
+	if data.UpdateConfirm {
+		return fitMenuHints([]string{menuHint("y", "update"), menuHint("esc / n", "cancel"), menuHint("ctrl+c", "quit")}, data.Width)
+	}
 	if data.Empty {
 		return fitMenuHints([]string{menuHint("?", "help"), menuHint("q", "quit")}, data.Width)
 	}
@@ -303,6 +328,9 @@ func renderMenu(data DashboardData) string {
 	}
 	if data.Selected != nil && data.Selected.Server.SSH != nil {
 		hints = append(hints, menuHint("s", "SSH"))
+		if data.CanUpdate {
+			hints = append(hints, menuHint("u", "update"))
+		}
 	}
 	hints = append(hints, menuHint("?", "help"), menuHint("q", "quit"))
 	return fitMenuHints(hints, data.Width)
