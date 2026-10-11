@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -14,13 +15,16 @@ import (
 	"github.com/ch55secake/orbit/internal/config"
 	"github.com/ch55secake/orbit/internal/server"
 	"github.com/ch55secake/orbit/internal/tui/views"
+	"github.com/ch55secake/orbit/internal/tunnel"
 )
 
 type app struct {
 	version    string
 	configPath string
+	ctx        context.Context
 	cfg        config.Config
 	apiClient  metricsClient
+	tunnels    server.TunnelManager
 	table      table.Model
 	statuses   []server.Status
 	loading    bool
@@ -36,12 +40,20 @@ type metricsClient interface {
 	Metrics(context.Context, string) (client.MetricsResponse, error)
 }
 
-func Run(configPath, version string) error {
+func Run(configPath, version string) (runErr error) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}
+	tunnels := tunnel.NewManager()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		runErr = errors.Join(runErr, tunnels.Close())
+	}()
 	model := newApp(cfg, configPath, version)
+	model.ctx = ctx
+	model.tunnels = tunnels
 	program := tea.NewProgram(model, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout))
 	_, err = program.Run()
 	return err
@@ -56,6 +68,7 @@ func newApp(cfg config.Config, configPath, version string) *app {
 		version:    version,
 		configPath: configPath,
 		cfg:        cfg,
+		ctx:        context.Background(),
 		apiClient:  client.New(5 * time.Second),
 		statuses:   make([]server.Status, len(cfg.Servers)),
 		table: table.New(
@@ -144,6 +157,8 @@ func (m *app) View() tea.View {
 func (m *app) fetchMetrics() tea.Cmd {
 	targets := append([]config.Server(nil), m.cfg.Servers...)
 	apiClient := m.apiClient
+	tunnels := m.tunnels
+	ctx := m.ctx
 	return func() tea.Msg {
 		statuses := make([]server.Status, len(targets))
 		var waitGroup sync.WaitGroup
@@ -151,13 +166,7 @@ func (m *app) fetchMetrics() tea.Cmd {
 			waitGroup.Add(1)
 			go func(index int, target config.Server) {
 				defer waitGroup.Done()
-				statuses[index].Server = target
-				metrics, err := apiClient.Metrics(context.Background(), target.Address)
-				if err != nil {
-					statuses[index].Error = err
-					return
-				}
-				statuses[index].Metrics = &metrics
+				statuses[index] = server.FetchMetrics(ctx, target, apiClient, tunnels)
 			}(i, target)
 		}
 		waitGroup.Wait()

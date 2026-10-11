@@ -98,6 +98,38 @@ func TestPartialMetricErrorsKeepServerOnlineAndShowWarning(t *testing.T) {
 	}
 }
 
+func TestSSHTunnelStateIsShownAndStartupErrorsAreActionable(t *testing.T) {
+	target := testServer("remote")
+	target.SSH = &config.SSHConfig{Host: "prod", RemotePort: 8787}
+	t.Run("connected", func(t *testing.T) {
+		model, fake := testApp([]config.Server{target})
+		model.tunnels = &fakeTunnelController{}
+		fake.set(target.Address, metricsResult{response: testMetrics(25)})
+		updateModel(t, model, model.Init()())
+		if model.statuses[0].TunnelState != server.TunnelConnected {
+			t.Fatalf("tunnel state = %q, want connected", model.statuses[0].TunnelState)
+		}
+		if view := model.View().Content; !strings.Contains(view, "SSH tunnel: connected") {
+			t.Fatalf("connected tunnel state missing from dashboard: %q", view)
+		}
+	})
+
+	t.Run("startup failure", func(t *testing.T) {
+		model, fake := testApp([]config.Server{target})
+		model.tunnels = &fakeTunnelController{ensureErr: errors.New("private key rejected")}
+		updateModel(t, model, model.Init()())
+		if model.statuses[0].TunnelState != server.TunnelDisconnected {
+			t.Fatalf("tunnel state = %q, want disconnected", model.statuses[0].TunnelState)
+		}
+		if view := model.View().Content; !strings.Contains(view, "SSH tunnel: disconnected") || !strings.Contains(view, "private key rejected") {
+			t.Fatalf("tunnel failure is not actionable in dashboard: %q", view)
+		}
+		if got := fake.callCount(); got != 0 {
+			t.Fatalf("metrics calls = %d, want no request after tunnel startup fails", got)
+		}
+	})
+}
+
 func TestRefreshClearsErrorAndFetchesAgain(t *testing.T) {
 	model, fake := testApp([]config.Server{testServer("alpha")})
 	fake.set("http://alpha.test", metricsResult{err: errors.New("connection refused")})
@@ -181,6 +213,19 @@ type fakeMetricsClient struct {
 	mu        sync.Mutex
 	responses map[string]metricsResult
 	calls     []string
+}
+
+type fakeTunnelController struct {
+	ensureErr    error
+	reconnectErr error
+}
+
+func (f *fakeTunnelController) Ensure(context.Context, config.Server) error {
+	return f.ensureErr
+}
+
+func (f *fakeTunnelController) Reconnect(context.Context, config.Server) error {
+	return f.reconnectErr
 }
 
 func (f *fakeMetricsClient) Metrics(_ context.Context, address string) (client.MetricsResponse, error) {

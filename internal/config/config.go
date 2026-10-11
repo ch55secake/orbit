@@ -3,9 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -20,9 +22,19 @@ type Config struct {
 }
 
 type Server struct {
-	Name        string `mapstructure:"name" yaml:"name"`
-	Address     string `mapstructure:"address" yaml:"address"`
-	Description string `mapstructure:"description" yaml:"description,omitempty"`
+	Name        string     `mapstructure:"name" yaml:"name"`
+	Address     string     `mapstructure:"address" yaml:"address"`
+	Description string     `mapstructure:"description" yaml:"description,omitempty"`
+	SSH         *SSHConfig `mapstructure:"ssh" yaml:"ssh,omitempty"`
+}
+
+type SSHConfig struct {
+	Host         string `mapstructure:"host" yaml:"host"`
+	User         string `mapstructure:"user" yaml:"user,omitempty"`
+	Port         int    `mapstructure:"port" yaml:"port,omitempty"`
+	IdentityFile string `mapstructure:"identity_file" yaml:"identity_file,omitempty"`
+	RemoteHost   string `mapstructure:"remote_host" yaml:"remote_host,omitempty"`
+	RemotePort   int    `mapstructure:"remote_port" yaml:"remote_port"`
 }
 
 func DefaultPath() string {
@@ -92,6 +104,7 @@ func Save(path string, cfg Config) error {
 
 func (c Config) Validate() error {
 	seenNames := make(map[string]struct{}, len(c.Servers))
+	seenTunnelPorts := make(map[int]int, len(c.Servers))
 	for index, server := range c.Servers {
 		if err := server.Validate(); err != nil {
 			return fmt.Errorf("server %d: %w", index+1, err)
@@ -102,6 +115,15 @@ func (c Config) Validate() error {
 			return fmt.Errorf("server %q is duplicated", name)
 		}
 		seenNames[name] = struct{}{}
+
+		if server.SSH != nil {
+			address, _ := url.Parse(strings.TrimSpace(server.Address))
+			port, _ := strconv.Atoi(address.Port())
+			if previous, exists := seenTunnelPorts[port]; exists {
+				return fmt.Errorf("server %q shares local SSH tunnel port %d with server %q", name, port, c.Servers[previous].Name)
+			}
+			seenTunnelPorts[port] = index
+		}
 	}
 	return nil
 }
@@ -140,7 +162,78 @@ func (s Server) Validate() error {
 	if parsed.Opaque != "" || strings.HasSuffix(parsed.Host, ":") {
 		return fmt.Errorf("server address %q contains an unsupported URL", s.Address)
 	}
+	if s.SSH != nil {
+		if err := s.SSH.validate(parsed); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (s SSHConfig) validate(address *url.URL) error {
+	host := strings.TrimSpace(s.Host)
+	if host == "" {
+		return errors.New("SSH host must not be empty")
+	}
+	if strings.HasPrefix(host, "-") {
+		return fmt.Errorf("SSH host %q is invalid", s.Host)
+	}
+	for _, character := range host {
+		if !unicode.IsLetter(character) && !unicode.IsDigit(character) && !strings.ContainsRune("._:-", character) {
+			return fmt.Errorf("SSH host %q is invalid", s.Host)
+		}
+	}
+	user := strings.TrimSpace(s.User)
+	if user != "" {
+		for _, character := range user {
+			if !unicode.IsLetter(character) && !unicode.IsDigit(character) && !strings.ContainsRune("._-", character) {
+				return fmt.Errorf("SSH user %q is invalid", s.User)
+			}
+		}
+	}
+	if s.Port < 0 || s.Port > 65535 {
+		return fmt.Errorf("SSH port %d must be 0 (default) or between 1 and 65535", s.Port)
+	}
+	if s.RemotePort < 1 || s.RemotePort > 65535 {
+		return fmt.Errorf("SSH remote port %d must be between 1 and 65535", s.RemotePort)
+	}
+	if s.IdentityFile != "" && hasControl(s.IdentityFile) {
+		return errors.New("SSH identity file must not contain control characters")
+	}
+	remoteHost := strings.TrimSpace(s.RemoteHost)
+	if remoteHost == "" {
+		remoteHost = "127.0.0.1"
+	}
+	if remoteHost != "localhost" {
+		ip := net.ParseIP(remoteHost)
+		if ip == nil || !ip.IsLoopback() {
+			return fmt.Errorf("SSH remote host %q must be localhost or a loopback IP", s.RemoteHost)
+		}
+	}
+	localHost := net.ParseIP(address.Hostname())
+	if localHost == nil || !localHost.IsLoopback() {
+		return fmt.Errorf("SSH tunnel address host %q must be a loopback IP", address.Hostname())
+	}
+	if address.Port() == "" {
+		return errors.New("SSH tunnel address must include a local port")
+	}
+	localPort, err := strconv.Atoi(address.Port())
+	if err != nil || localPort < 1 || localPort > 65535 {
+		return fmt.Errorf("SSH tunnel address port %q must be between 1 and 65535", address.Port())
+	}
+	if address.Path != "" && address.Path != "/" {
+		return errors.New("SSH tunnel address must not include a path")
+	}
+	return nil
+}
+
+func hasControl(value string) bool {
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Config) AddServer(server Server) error {
@@ -208,5 +301,13 @@ func normalizeServer(server Server) Server {
 	server.Name = strings.TrimSpace(server.Name)
 	server.Address = strings.TrimSpace(server.Address)
 	server.Description = strings.TrimSpace(server.Description)
+	if server.SSH != nil {
+		ssh := *server.SSH
+		ssh.Host = strings.TrimSpace(ssh.Host)
+		ssh.User = strings.TrimSpace(ssh.User)
+		ssh.IdentityFile = strings.TrimSpace(ssh.IdentityFile)
+		ssh.RemoteHost = strings.TrimSpace(ssh.RemoteHost)
+		server.SSH = &ssh
+	}
 	return server
 }
