@@ -14,7 +14,8 @@ over HTTP, normally through SSH port forwarding.
 - `orbit servers remove`: remove a registered Stardust endpoint
 - `orbit status`: fetch CPU, memory, disk, and uptime metrics
 - managed SSH local port forwarding for remote Stardust agents
-- No remote command execution and no hosted service required
+- `orbit ssh <server>`: open an SSH shell using the configured connection
+- No hosted service required; remote shells are opened only on explicit request
 
 ## Install and run
 
@@ -89,6 +90,7 @@ An example configuration is in `examples/config.yaml`.
 - `↑`/`k`, `↓`/`j`: move through servers
 - `PgUp`/`PgDown`: move a page; `Home`/`End`: jump to the first/last server
 - `r`: refresh all metrics
+- `s`: open the selected server's SSH shell; exiting returns to the dashboard
 - `?`: toggle help and the active configuration path
 - `q` or `Ctrl-C`: exit
 
