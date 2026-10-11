@@ -8,6 +8,7 @@ import (
 
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/config"
+	"github.com/ch55secake/orbit/internal/tunnel"
 )
 
 func TestFetchMetricsStartsTunnelAndReconnectsAfterRequestFailure(t *testing.T) {
@@ -58,6 +59,70 @@ func TestFetchMetricsKeepsDirectHTTPBehavior(t *testing.T) {
 	}
 }
 
+func TestFetchMetricsPromptsOnlyAfterAuthenticationIsRejected(t *testing.T) {
+	target := sshServer()
+	api := &fakeMetricsClient{results: []metricsResult{{response: client.MetricsResponse{Data: client.MetricsData{Hostname: "remote"}}}}}
+	tunnels := &fakeTunnelManager{ensureErr: tunnel.ErrPasswordRequired, passwordErrs: []error{tunnel.ErrPasswordRequired, nil}}
+	promptCalls := 0
+	var supplied []byte
+	prompt := func(context.Context, config.Server) ([]byte, error) {
+		promptCalls++
+		supplied = []byte("temporary secret")
+		return supplied, nil
+	}
+
+	status := FetchMetricsWithPrompt(context.Background(), target, api, tunnels, prompt)
+	if status.Error != nil || status.Metrics == nil || promptCalls != 2 || tunnels.passwordCalls != 2 {
+		t.Fatalf("status=%+v prompt calls=%d password attempts=%d", status, promptCalls, tunnels.passwordCalls)
+	}
+	if string(supplied) != strings.Repeat("\x00", len(supplied)) {
+		t.Fatal("password buffer was not cleared after tunnel authentication")
+	}
+}
+
+func TestFetchMetricsPasswordPromptCancellationAndAttemptLimit(t *testing.T) {
+	t.Run("cancelled", func(t *testing.T) {
+		tunnels := &fakeTunnelManager{ensureErr: tunnel.ErrPasswordRequired}
+		api := &fakeMetricsClient{}
+		status := FetchMetricsWithPrompt(context.Background(), sshServer(), api, tunnels, func(context.Context, config.Server) ([]byte, error) {
+			return nil, context.Canceled
+		})
+		if status.Error == nil || !strings.Contains(status.Error.Error(), "context canceled") || api.calls != 0 {
+			t.Fatalf("cancelled prompt status=%+v metrics calls=%d", status, api.calls)
+		}
+	})
+
+	t.Run("bounded wrong passwords", func(t *testing.T) {
+		tunnels := &fakeTunnelManager{ensureErr: tunnel.ErrPasswordRequired, passwordErrs: []error{tunnel.ErrPasswordRequired, tunnel.ErrPasswordRequired, tunnel.ErrPasswordRequired}}
+		api := &fakeMetricsClient{}
+		promptCalls := 0
+		status := FetchMetricsWithPrompt(context.Background(), sshServer(), api, tunnels, func(context.Context, config.Server) ([]byte, error) {
+			promptCalls++
+			return []byte("wrong"), nil
+		})
+		if status.Error == nil || !strings.Contains(status.Error.Error(), "after 3 password attempts") || promptCalls != 3 || api.calls != 0 {
+			t.Fatalf("bounded retry status=%+v prompt calls=%d metrics calls=%d", status, promptCalls, api.calls)
+		}
+	})
+}
+
+func TestFetchMetricsReconnectCanPromptForPassword(t *testing.T) {
+	target := sshServer()
+	api := &fakeMetricsClient{results: []metricsResult{
+		{err: errors.New("connection reset")},
+		{response: client.MetricsResponse{Data: client.MetricsData{Hostname: "remote"}}},
+	}}
+	tunnels := &fakeTunnelManager{reconnectErr: tunnel.ErrPasswordRequired}
+	promptCalls := 0
+	status := FetchMetricsWithPrompt(context.Background(), target, api, tunnels, func(context.Context, config.Server) ([]byte, error) {
+		promptCalls++
+		return []byte("temporary"), nil
+	})
+	if status.Error != nil || status.Metrics == nil || promptCalls != 1 || tunnels.reconnects != 1 || tunnels.passwordCalls != 1 {
+		t.Fatalf("status=%+v prompts=%d reconnects=%d password attempts=%d", status, promptCalls, tunnels.reconnects, tunnels.passwordCalls)
+	}
+}
+
 type metricsResult struct {
 	response client.MetricsResponse
 	err      error
@@ -78,10 +143,12 @@ func (f *fakeMetricsClient) Metrics(context.Context, string) (client.MetricsResp
 }
 
 type fakeTunnelManager struct {
-	ensures      int
-	reconnects   int
-	ensureErr    error
-	reconnectErr error
+	ensures       int
+	reconnects    int
+	passwordCalls int
+	ensureErr     error
+	reconnectErr  error
+	passwordErrs  []error
 }
 
 func (f *fakeTunnelManager) Ensure(context.Context, config.Server) error {
@@ -92,6 +159,18 @@ func (f *fakeTunnelManager) Ensure(context.Context, config.Server) error {
 func (f *fakeTunnelManager) Reconnect(context.Context, config.Server) error {
 	f.reconnects++
 	return f.reconnectErr
+}
+
+func (f *fakeTunnelManager) EnsureWithPassword(_ context.Context, _ config.Server, password []byte) error {
+	f.passwordCalls++
+	if len(password) == 0 {
+		return errors.New("empty password")
+	}
+	index := f.passwordCalls - 1
+	if index < len(f.passwordErrs) {
+		return f.passwordErrs[index]
+	}
+	return nil
 }
 
 func sshServer() config.Server {

@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -22,7 +23,7 @@ func TestSSHArgsUseOnlyDedicatedForwardingOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args, err := sshArgs(server, address)
+	args, err := sshArgs(server, address, false)
 	if err != nil {
 		t.Fatalf("ssh args: %v", err)
 	}
@@ -74,6 +75,26 @@ func TestManagerStartsReconnectsAndStopsSSHProcess(t *testing.T) {
 	}
 	if got := starts(); got != 2 {
 		t.Fatalf("SSH process starts after manager close = %d, want 2", got)
+	}
+}
+
+func TestManagerStartsPasswordTunnelAndClearsInput(t *testing.T) {
+	manager, starts := helperManager(t, "hold", time.Second)
+	password := []byte("session password")
+	if err := manager.EnsureWithPassword(context.Background(), testTunnelServer(t), password); err != nil {
+		t.Fatalf("ensure password tunnel: %v", err)
+	}
+	if got := starts(); got != 1 {
+		t.Fatalf("SSH process starts = %d, want 1", got)
+	}
+	if string(password) != strings.Repeat("\x00", len(password)) {
+		t.Fatal("manager did not clear the caller's password buffer")
+	}
+	if current := manager.processes["remote"]; current == nil || current.askpass != nil {
+		t.Fatal("askpass broker was not cleared after tunnel startup")
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatalf("close manager: %v", err)
 	}
 }
 
@@ -168,6 +189,14 @@ func TestManagerReportsStartupAndLocalPortErrors(t *testing.T) {
 	})
 }
 
+func TestManagerClassifiesAuthenticationRejection(t *testing.T) {
+	manager, _ := helperManager(t, "auth-fail", time.Second)
+	err := manager.Ensure(context.Background(), testTunnelServer(t))
+	if !errors.Is(err, ErrPasswordRequired) {
+		t.Fatalf("authentication error = %v, want ErrPasswordRequired", err)
+	}
+}
+
 func TestSSHProcessHelper(t *testing.T) {
 	if os.Getenv("ORBIT_SSH_TEST_HELPER") != "1" {
 		return
@@ -190,6 +219,9 @@ func TestSSHProcessHelper(t *testing.T) {
 		}
 	case "fail":
 		_, _ = fmt.Fprintln(os.Stderr, "bind [127.0.0.1]:18787: Address already in use")
+		os.Exit(255)
+	case "auth-fail":
+		_, _ = fmt.Fprintln(os.Stderr, "prod: Permission denied (publickey).")
 		os.Exit(255)
 	default:
 		os.Exit(2)

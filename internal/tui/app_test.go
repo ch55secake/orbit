@@ -204,6 +204,42 @@ func TestQuitKeyReturnsQuitCommand(t *testing.T) {
 	}
 }
 
+func TestPasswordPromptMasksAndSubmitsSecret(t *testing.T) {
+	model, _ := testApp(nil)
+	request := &passwordRequest{server: testServer("remote"), response: make(chan passwordResponse, 1)}
+	model.Update(passwordRequestMsg{request: request})
+	model.Update(keyPress("sëqret"))
+	view := model.View().Content
+	if strings.Contains(view, "sëqret") || !strings.Contains(view, "Password: ••••••") {
+		t.Fatalf("password prompt did not conceal input: %q", view)
+	}
+
+	model.Update(keyPress("enter"))
+	response := <-request.response
+	if response.err != nil || string(response.password) != "sëqret" {
+		t.Fatalf("password response = %q, %v", response.password, response.err)
+	}
+	if len(model.passwordInput) != 0 || model.passwordRequest != nil {
+		t.Fatal("password prompt retained its input after submission")
+	}
+	clear(response.password)
+}
+
+func TestPasswordPromptCanBeCancelled(t *testing.T) {
+	model, _ := testApp(nil)
+	request := &passwordRequest{server: testServer("remote"), response: make(chan passwordResponse, 1)}
+	model.Update(passwordRequestMsg{request: request})
+	model.Update(keyPress("secret"))
+	model.Update(keyPress("esc"))
+	response := <-request.response
+	if !errors.Is(response.err, context.Canceled) {
+		t.Fatalf("cancel response error = %v, want context cancellation", response.err)
+	}
+	if len(model.passwordInput) != 0 || model.passwordRequest != nil {
+		t.Fatal("cancelled password prompt retained its input")
+	}
+}
+
 type metricsResult struct {
 	response client.MetricsResponse
 	err      error
@@ -222,6 +258,10 @@ type fakeTunnelController struct {
 
 func (f *fakeTunnelController) Ensure(context.Context, config.Server) error {
 	return f.ensureErr
+}
+
+func (*fakeTunnelController) EnsureWithPassword(context.Context, config.Server, []byte) error {
+	return nil
 }
 
 func (f *fakeTunnelController) Reconnect(context.Context, config.Server) error {

@@ -26,6 +26,8 @@ const (
 	maxStderrSize    = 4096
 )
 
+var ErrPasswordRequired = errors.New("SSH password authentication required")
+
 // Manager owns the SSH processes used to forward configured Stardust servers.
 // A manager is intended to be scoped to one status command or TUI instance.
 type Manager struct {
@@ -40,6 +42,7 @@ type Manager struct {
 type process struct {
 	command *exec.Cmd
 	stderr  *limitedBuffer
+	askpass *askpassBroker
 	done    chan struct{}
 	err     error
 }
@@ -76,7 +79,38 @@ func (m *Manager) Ensure(ctx context.Context, server config.Server) error {
 			return nil
 		}
 	}
-	return m.startLocked(ctx, server)
+	return m.startLocked(ctx, server, nil)
+}
+
+// EnsureWithPassword retries a server tunnel using OpenSSH AskPass. The
+// password is copied into a short-lived in-memory broker and cleared as soon
+// as SSH authentication completes or startup fails.
+func (m *Manager) EnsureWithPassword(ctx context.Context, server config.Server, password []byte) error {
+	if server.SSH == nil {
+		return nil
+	}
+	if err := server.Validate(); err != nil {
+		return fmt.Errorf("invalid SSH tunnel configuration: %w", err)
+	}
+	if password == nil {
+		return errors.New("SSH password must not be nil")
+	}
+	defer clear(password)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return errors.New("SSH tunnel manager is closed")
+	}
+	if current := m.processes[server.Name]; current != nil {
+		select {
+		case <-current.done:
+			delete(m.processes, server.Name)
+		default:
+			return nil
+		}
+	}
+	return m.startLocked(ctx, server, password)
 }
 
 // Stop terminates one server's managed tunnel if it is running.
@@ -111,7 +145,7 @@ func (m *Manager) Reconnect(ctx context.Context, server config.Server) error {
 			return err
 		}
 	}
-	return m.startLocked(ctx, server)
+	return m.startLocked(ctx, server, nil)
 }
 
 // Close terminates and reaps all child ssh processes. It is safe to call more
@@ -129,7 +163,7 @@ func (m *Manager) Close() error {
 	return errors.Join(closeErrors...)
 }
 
-func (m *Manager) startLocked(ctx context.Context, server config.Server) error {
+func (m *Manager) startLocked(ctx context.Context, server config.Server, password []byte) error {
 	address, err := url.Parse(server.Address)
 	if err != nil {
 		return fmt.Errorf("parse SSH tunnel address: %w", err)
@@ -143,18 +177,27 @@ func (m *Manager) startLocked(ctx context.Context, server config.Server) error {
 		return fmt.Errorf("release SSH tunnel local port %s: %w", localAddress, err)
 	}
 
-	args, err := sshArgs(server, address)
+	broker, err := newAskpassBrokerIfNeeded(password)
 	if err != nil {
 		return err
+	}
+	args, err := sshArgs(server, address, broker != nil)
+	if err != nil {
+		return errors.Join(err, closeBroker(broker))
 	}
 	command := m.command(m.sshPath, args...)
 	command.Stdout = io.Discard
 	stderr := &limitedBuffer{limit: maxStderrSize}
 	command.Stderr = stderr
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("start SSH tunnel for server %q: %w", server.Name, err)
+	if broker != nil {
+		if err := configureAskpass(command, broker); err != nil {
+			return errors.Join(err, closeBroker(broker))
+		}
 	}
-	current := &process{command: command, stderr: stderr, done: make(chan struct{})}
+	if err := command.Start(); err != nil {
+		return errors.Join(fmt.Errorf("start SSH tunnel for server %q: %w", server.Name, err), closeBroker(broker))
+	}
+	current := &process{command: command, stderr: stderr, askpass: broker, done: make(chan struct{})}
 	m.processes[server.Name] = current
 	go func() {
 		current.err = command.Wait()
@@ -169,7 +212,7 @@ func (m *Manager) startLocked(ctx context.Context, server config.Server) error {
 		select {
 		case <-current.done:
 			delete(m.processes, server.Name)
-			return startupError(server.Name, current)
+			return errors.Join(startupError(server.Name, current), closeProcessAskpass(current))
 		case <-ctx.Done():
 			stopErr := m.stopLocked(server.Name, current)
 			return errors.Join(fmt.Errorf("start SSH tunnel for server %q: %w", server.Name, ctx.Err()), stopErr)
@@ -186,8 +229,11 @@ func (m *Manager) startLocked(ctx context.Context, server config.Server) error {
 			select {
 			case <-current.done:
 				delete(m.processes, server.Name)
-				return startupError(server.Name, current)
+				return errors.Join(startupError(server.Name, current), closeProcessAskpass(current))
 			default:
+				if err := closeProcessAskpass(current); err != nil {
+					return errors.Join(fmt.Errorf("clear SSH password for server %q: %w", server.Name, err), m.stopLocked(server.Name, current))
+				}
 				return nil
 			}
 		}
@@ -195,7 +241,7 @@ func (m *Manager) startLocked(ctx context.Context, server config.Server) error {
 		select {
 		case <-current.done:
 			delete(m.processes, server.Name)
-			return startupError(server.Name, current)
+			return errors.Join(startupError(server.Name, current), closeProcessAskpass(current))
 		case <-ctx.Done():
 			stopErr := m.stopLocked(server.Name, current)
 			return errors.Join(fmt.Errorf("start SSH tunnel for server %q: %w", server.Name, ctx.Err()), stopErr)
@@ -212,20 +258,23 @@ func (m *Manager) stopLocked(name string, current *process) error {
 	select {
 	case <-current.done:
 		delete(m.processes, name)
-		return nil
+		return closeProcessAskpass(current)
 	default:
 	}
 
 	if err := current.command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("stop SSH tunnel for server %q: %w", name, err)
+		return errors.Join(fmt.Errorf("stop SSH tunnel for server %q: %w", name, err), closeProcessAskpass(current))
 	}
 	<-current.done
 	delete(m.processes, name)
-	return nil
+	return closeProcessAskpass(current)
 }
 
 func startupError(name string, current *process) error {
 	message := strings.TrimSpace(current.stderr.String())
+	if authenticationRejected(message) {
+		return fmt.Errorf("SSH authentication rejected for server %q (%s): %w", name, message, ErrPasswordRequired)
+	}
 	if message != "" {
 		return fmt.Errorf("SSH tunnel for server %q exited during startup (%v): %s", name, current.err, message)
 	}
@@ -235,7 +284,14 @@ func startupError(name string, current *process) error {
 	return fmt.Errorf("SSH tunnel for server %q exited during startup: %w", name, current.err)
 }
 
-func sshArgs(server config.Server, address *url.URL) ([]string, error) {
+func authenticationRejected(message string) bool {
+	lowerMessage := strings.ToLower(message)
+	return strings.Contains(lowerMessage, "permission denied") ||
+		strings.Contains(lowerMessage, "no more authentication methods to try") ||
+		strings.Contains(lowerMessage, "authentication failed")
+}
+
+func sshArgs(server config.Server, address *url.URL, passwordAuth bool) ([]string, error) {
 	settings := server.SSH
 	sshPort := settings.Port
 	if sshPort == 0 {
@@ -250,9 +306,13 @@ func sshArgs(server config.Server, address *url.URL) ([]string, error) {
 	localPort := address.Port()
 	forward := fmt.Sprintf("%s:%s:%s:%d", forwardHost(localHost), localPort, forwardHost(remoteHost), remotePort)
 
+	batchMode := "BatchMode=yes"
+	if passwordAuth {
+		batchMode = "BatchMode=no"
+	}
 	args := []string{
 		"-N",
-		"-o", "BatchMode=yes",
+		"-o", batchMode,
 		"-o", "ExitOnForwardFailure=yes",
 		"-o", "PermitLocalCommand=no",
 		"-o", "RequestTTY=no",
@@ -262,6 +322,12 @@ func sshArgs(server config.Server, address *url.URL) ([]string, error) {
 		"-o", "ServerAliveInterval=15",
 		"-o", "ServerAliveCountMax=3",
 		"-p", strconv.Itoa(sshPort),
+	}
+	if passwordAuth {
+		args = append(args,
+			"-o", "NumberOfPasswordPrompts=1",
+			"-o", "PreferredAuthentications=publickey,password",
+		)
 	}
 	if user := strings.TrimSpace(settings.User); user != "" {
 		args = append(args, "-l", user)

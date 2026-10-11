@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
@@ -19,21 +20,38 @@ import (
 )
 
 type app struct {
-	version    string
-	configPath string
-	ctx        context.Context
-	cfg        config.Config
-	apiClient  metricsClient
-	tunnels    server.TunnelManager
-	table      table.Model
-	statuses   []server.Status
-	loading    bool
-	message    string
-	width      int
+	version         string
+	configPath      string
+	ctx             context.Context
+	cfg             config.Config
+	apiClient       metricsClient
+	tunnels         server.TunnelManager
+	table           table.Model
+	statuses        []server.Status
+	loading         bool
+	message         string
+	width           int
+	program         *tea.Program
+	passwordRequest *passwordRequest
+	passwordInput   []byte
 }
 
 type metricsMsg struct {
 	statuses []server.Status
+}
+
+type passwordRequest struct {
+	server   config.Server
+	response chan passwordResponse
+}
+
+type passwordRequestMsg struct {
+	request *passwordRequest
+}
+
+type passwordResponse struct {
+	password []byte
+	err      error
 }
 
 type metricsClient interface {
@@ -55,6 +73,7 @@ func Run(configPath, version string) (runErr error) {
 	model.ctx = ctx
 	model.tunnels = tunnels
 	program := tea.NewProgram(model, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout))
+	model.program = program
 	_, err = program.Run()
 	return err
 }
@@ -102,11 +121,25 @@ func (m *app) Init() tea.Cmd {
 
 func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case passwordRequestMsg:
+		if m.passwordRequest != nil {
+			m.passwordRequest.response <- passwordResponse{err: errors.New("SSH password prompt was interrupted")}
+		}
+		m.passwordRequest = msg.request
+		clear(m.passwordInput)
+		m.passwordInput = nil
+		return m, nil
 	case tea.KeyPressMsg:
+		if m.passwordRequest != nil {
+			return m, m.updatePasswordInput(msg)
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "r":
+			if m.loading {
+				return m, nil
+			}
 			m.loading = true
 			m.message = ""
 			return m, m.fetchMetrics()
@@ -138,17 +171,24 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *app) View() tea.View {
 	var selected *server.Status
+	var passwordServer string
 	if cursor := m.table.Cursor(); cursor >= 0 && cursor < len(m.statuses) {
 		selected = &m.statuses[cursor]
 	}
+	if m.passwordRequest != nil {
+		passwordServer = m.passwordRequest.server.Name
+	}
 	view := tea.NewView(views.Render(views.DashboardData{
-		Version:    m.version,
-		ConfigPath: m.configPath,
-		Table:      m.table.View(),
-		Selected:   selected,
-		Empty:      len(m.cfg.Servers) == 0,
-		Loading:    m.loading,
-		Message:    m.message,
+		Version:        m.version,
+		ConfigPath:     m.configPath,
+		Table:          m.table.View(),
+		Selected:       selected,
+		Empty:          len(m.cfg.Servers) == 0,
+		Loading:        m.loading,
+		Message:        m.message,
+		PasswordPrompt: m.passwordRequest != nil,
+		PasswordServer: passwordServer,
+		PasswordInput:  strings.Repeat("•", utf8.RuneCount(m.passwordInput)),
 	}))
 	view.AltScreen = true
 	return view
@@ -161,16 +201,65 @@ func (m *app) fetchMetrics() tea.Cmd {
 	ctx := m.ctx
 	return func() tea.Msg {
 		statuses := make([]server.Status, len(targets))
-		var waitGroup sync.WaitGroup
 		for i, target := range targets {
-			waitGroup.Add(1)
-			go func(index int, target config.Server) {
-				defer waitGroup.Done()
-				statuses[index] = server.FetchMetrics(ctx, target, apiClient, tunnels)
-			}(i, target)
+			statuses[i] = server.FetchMetricsWithPrompt(ctx, target, apiClient, tunnels, m.requestPassword)
 		}
-		waitGroup.Wait()
 		return metricsMsg{statuses: statuses}
+	}
+}
+
+func (m *app) requestPassword(ctx context.Context, target config.Server) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if m.program == nil {
+		return nil, errors.New("TUI password prompt is unavailable")
+	}
+	request := &passwordRequest{server: target, response: make(chan passwordResponse, 1)}
+	m.program.Send(passwordRequestMsg{request: request})
+	select {
+	case response := <-request.response:
+		return response.password, response.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (m *app) updatePasswordInput(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "enter":
+		password := append([]byte(nil), m.passwordInput...)
+		clear(m.passwordInput)
+		m.passwordInput = nil
+		m.passwordRequest.response <- passwordResponse{password: password}
+		m.passwordRequest = nil
+	case "esc":
+		m.cancelPasswordPrompt()
+	case "backspace", "ctrl+h":
+		if len(m.passwordInput) > 0 {
+			_, size := utf8.DecodeLastRune(m.passwordInput)
+			for i := len(m.passwordInput) - size; i < len(m.passwordInput); i++ {
+				m.passwordInput[i] = 0
+			}
+			m.passwordInput = m.passwordInput[:len(m.passwordInput)-size]
+		}
+	case "ctrl+c":
+		m.cancelPasswordPrompt()
+		return tea.Quit
+	default:
+		if msg.Text != "" && msg.Mod == 0 {
+			m.passwordInput = append(m.passwordInput, msg.Text...)
+		}
+	}
+	return nil
+}
+
+func (m *app) cancelPasswordPrompt() {
+	clear(m.passwordInput)
+	m.passwordInput = nil
+	if m.passwordRequest != nil {
+		m.passwordRequest.response <- passwordResponse{err: context.Canceled}
+		m.passwordRequest = nil
 	}
 }
 

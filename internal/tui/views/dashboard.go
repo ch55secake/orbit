@@ -10,13 +10,16 @@ import (
 )
 
 type DashboardData struct {
-	Version    string
-	ConfigPath string
-	Table      string
-	Selected   *server.Status
-	Empty      bool
-	Loading    bool
-	Message    string
+	Version        string
+	ConfigPath     string
+	Table          string
+	Selected       *server.Status
+	Empty          bool
+	Loading        bool
+	Message        string
+	PasswordPrompt bool
+	PasswordServer string
+	PasswordInput  string
 }
 
 func Render(data DashboardData) string {
@@ -57,8 +60,21 @@ func Render(data DashboardData) string {
 	if data.Message != "" {
 		detail = lipgloss.JoinVertical(lipgloss.Left, detail, styles.Bad.Render(data.Message))
 	}
+	if data.PasswordPrompt {
+		detail = lipgloss.JoinVertical(lipgloss.Left, detail,
+			styles.Panel.Render(lipgloss.JoinVertical(lipgloss.Left,
+				styles.Title.Render("SSH password required: "+data.PasswordServer),
+				"Password: "+data.PasswordInput,
+				styles.Subtitle.Render("enter submit   esc cancel"),
+			)),
+		)
+	}
 
-	footer := styles.Footer.Render("↑/k ↓/j navigate   r refresh   q quit")
+	footerText := "↑/k ↓/j navigate   r refresh   q quit"
+	if data.PasswordPrompt {
+		footerText = "enter submit   esc cancel   ctrl+c quit"
+	}
+	footer := styles.Footer.Render(footerText)
 	return strings.TrimSpace(lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		configLine,
