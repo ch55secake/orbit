@@ -158,11 +158,12 @@ func FormatBytes(value uint64) string {
 		return fmt.Sprintf("%d B", value)
 	}
 	div, exp := float64(unit), 0
-	for n := value / unit; n >= unit && exp < 4; n /= unit {
+	const prefixes = "KMGTPE"
+	for n := value / unit; n >= unit && exp < len(prefixes)-1; n /= unit {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %ciB", float64(value)/div, "KMGT"[exp])
+	return fmt.Sprintf("%.1f %ciB", float64(value)/div, prefixes[exp])
 }
 
 func FormatUptime(seconds uint64) string {

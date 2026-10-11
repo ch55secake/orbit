@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/config"
 	"github.com/ch55secake/orbit/internal/server"
+	"github.com/ch55secake/orbit/internal/tui/components"
 	"github.com/ch55secake/orbit/internal/tui/views"
 	"github.com/ch55secake/orbit/internal/tunnel"
 )
@@ -324,10 +324,17 @@ func makeRows(targets []config.Server, statuses []server.Status) []table.Row {
 			case status.Metrics != nil:
 				data := status.Metrics.Data
 				row[1] = "online"
-				row[2] = fmt.Sprintf("%.1f%%", data.CPU.UsagePercent)
-				row[3] = fmt.Sprintf("%.1f%%", data.Memory.UsedPercent)
-				row[4] = fmt.Sprintf("%.1f%%", data.Disk.UsedPercent)
-				row[5] = client.FormatUptime(data.Uptime)
+				values := []string{
+					components.Percent(data.CPU.UsagePercent),
+					components.Percent(data.Memory.UsedPercent),
+					components.Percent(data.Disk.UsedPercent),
+					client.FormatUptime(data.Uptime),
+				}
+				for j, metric := range []string{"cpu", "memory", "disk", "uptime"} {
+					if components.MetricAvailable(data, metric) {
+						row[j+2] = values[j]
+					}
+				}
 			}
 		}
 		rows[i] = row

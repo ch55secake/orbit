@@ -76,6 +76,9 @@ func Render(data DashboardData) string {
 			"",
 			components.Cards(metrics, detailWidth),
 		)
+		for _, err := range metrics.Errors {
+			lines = append(lines, styles.Warn.Render(err.Metric+": "+err.Message))
+		}
 		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	}
 	if data.Message != "" {
