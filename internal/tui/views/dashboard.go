@@ -36,6 +36,10 @@ type DashboardData struct {
 	Notice         string
 	NoticeError    bool
 	CanUpdate      bool
+	ShellActive    bool
+	ShellServer    string
+	ShellContent   string
+	ShellStatus    string
 }
 
 func Render(data DashboardData) string {
@@ -51,7 +55,7 @@ func Render(data DashboardData) string {
 	}
 	footer := renderMenu(data)
 	help := ""
-	if data.ShowHelp && !data.PasswordPrompt && !data.UpdateConfirm {
+	if data.ShowHelp && !data.PasswordPrompt && !data.UpdateConfirm && !data.ShellActive {
 		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · pgup/pgdown page · home/end first/last\ns SSH shell · u update Stardust · r refresh · q quit · ? close help")
 		if data.Width > 0 {
 			help = ansi.Wrap(help, data.Width, "")
@@ -148,7 +152,9 @@ func Render(data DashboardData) string {
 	if detail == "" {
 		detail = styles.Subtitle.Render("Waiting for metrics…")
 	}
-	if data.PasswordPrompt {
+	if data.ShellActive {
+		detail = renderTerminal(data, detailWidth)
+	} else if data.PasswordPrompt {
 		detail = renderPanel(lipgloss.JoinVertical(lipgloss.Left,
 			styles.Title.Render("SSH password required: "+data.PasswordServer),
 			styles.Subtitle.Render("Used for this connection only; never saved."),
@@ -301,6 +307,9 @@ func fleetSummary(data DashboardData) string {
 }
 
 func renderMenu(data DashboardData) string {
+	if data.ShellActive {
+		return fitMenuHints([]string{menuHint("ctrl+]", "close SSH")}, data.Width)
+	}
 	if data.PasswordPrompt {
 		hints := []string{
 			menuHint("enter", "submit"),

@@ -15,11 +15,13 @@ import (
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/config"
 	"github.com/ch55secake/orbit/internal/server"
+	"github.com/ch55secake/orbit/internal/shell"
 	"github.com/ch55secake/orbit/internal/sshclient"
 	"github.com/ch55secake/orbit/internal/tui/components"
 	"github.com/ch55secake/orbit/internal/tui/views"
 	"github.com/ch55secake/orbit/internal/tunnel"
 	"github.com/ch55secake/orbit/internal/update"
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 type app struct {
@@ -43,13 +45,17 @@ type app struct {
 	updateTarget     *config.Server
 	notice           string
 	noticeError      bool
+	shellSession     *shell.Session
+	shellServer      string
+	shellStatus      string
+	shellBounds      views.TerminalGeometry
 }
 
 type metricsMsg struct {
 	statuses []server.Status
 }
 
-type sessionEndedMsg struct{ err error }
+type shellEventMsg struct{ session *shell.Session }
 
 type updateEndedMsg struct {
 	server string
@@ -86,6 +92,7 @@ func Run(configPath, version string) (runErr error) {
 		runErr = errors.Join(runErr, tunnels.Close())
 	}()
 	model := newApp(cfg, configPath, version)
+	defer model.closeShell()
 	model.ctx = ctx
 	model.tunnels = tunnels
 	program := tea.NewProgram(model, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout))
@@ -130,6 +137,23 @@ func (m *app) Init() tea.Cmd {
 
 func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case shellEventMsg:
+		if msg.session != m.shellSession {
+			return m, nil
+		}
+		if exited, err := m.shellSession.Result(); exited {
+			m.shellStatus = "exited · ctrl+] to close"
+			if err != nil {
+				m.shellStatus = err.Error() + " · ctrl+] to close"
+			}
+			return m, nil
+		}
+		return m, waitShell(m.shellSession)
+	case tea.PasteMsg:
+		if m.shellSession != nil {
+			m.shellSession.Paste(msg.Content)
+			return m, nil
+		}
 	case updateEndedMsg:
 		m.noticeError = msg.err != nil
 		m.notice = "Stardust updated on " + msg.server
@@ -139,11 +163,6 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		m.resizeTableHeight()
 		return m, m.fetchMetrics()
-	case sessionEndedMsg:
-		if msg.err != nil {
-			m.message = "SSH session: " + msg.err.Error()
-		}
-		return m, nil
 	case passwordRequestMsg:
 		m.updateTarget = nil
 		if m.passwordRequest != nil {
@@ -160,6 +179,15 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.updateTarget != nil {
 			return m, m.updateConfirmation(msg)
 		}
+		if m.shellSession != nil {
+			if msg.String() == "ctrl+]" {
+				m.closeShell()
+				m.resizeTableHeight()
+				return m, nil
+			}
+			m.shellSession.SendKey(uv.KeyPressEvent(msg))
+			return m, nil
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -167,6 +195,10 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showHelp = !m.showHelp
 			return m, nil
 		case "s":
+			if m.loading {
+				m.message = "Wait for metrics loading to finish before opening SSH"
+				return m, nil
+			}
 			cursor := m.table.Cursor()
 			if cursor < 0 || cursor >= len(m.cfg.Servers) {
 				return m, nil
@@ -176,8 +208,22 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.message = err.Error()
 				return m, nil
 			}
+			m.showHelp = false
+			m.shellBounds = views.TerminalBounds(m.dashboardData())
+			if m.shellBounds.Width < 10 || m.shellBounds.Height < 2 {
+				m.message = "Terminal is too small for embedded SSH"
+				return m, nil
+			}
+			session, err := shell.Start(process, m.shellBounds.Width, m.shellBounds.Height)
+			if err != nil {
+				m.message = err.Error()
+				return m, nil
+			}
+			m.shellSession = session
+			m.shellServer = m.cfg.Servers[cursor].Name
+			m.shellStatus = ""
 			m.message = ""
-			return m, tea.ExecProcess(process, func(err error) tea.Msg { return sessionEndedMsg{err: err} })
+			return m, waitShell(session)
 		case "u":
 			if m.loading {
 				m.message = "Wait for metrics loading to finish before updating Stardust"
@@ -230,6 +276,13 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	m.resizeTableHeight()
+	if m.shellSession != nil {
+		bounds := views.TerminalBounds(m.dashboardData())
+		if bounds != m.shellBounds {
+			m.shellBounds = bounds
+			_ = m.shellSession.Resize(bounds.Width, bounds.Height)
+		}
+	}
 	return m, cmd
 }
 
@@ -296,7 +349,7 @@ func (m *app) resizeTableHeight() {
 	m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(m.height-reserved, 2)))
 }
 
-func (m *app) View() tea.View {
+func (m *app) dashboardData() views.DashboardData {
 	var selected *server.Status
 	var passwordServer string
 	var updateServer string
@@ -309,7 +362,7 @@ func (m *app) View() tea.View {
 	if m.updateTarget != nil {
 		updateServer = m.updateTarget.Name
 	}
-	view := tea.NewView(views.Render(views.DashboardData{
+	data := views.DashboardData{
 		Version:        m.version,
 		ConfigPath:     m.configPath,
 		Table:          m.table.View(),
@@ -330,9 +383,39 @@ func (m *app) View() tea.View {
 		Notice:         m.notice,
 		NoticeError:    m.noticeError,
 		CanUpdate:      selected != nil && !m.loading && update.Validate(selected.Server, "latest") == nil,
-	}))
+		ShellActive:    m.shellSession != nil,
+		ShellServer:    m.shellServer,
+		ShellStatus:    m.shellStatus,
+	}
+	if m.shellSession != nil {
+		data.ShellContent = m.shellSession.Render()
+	}
+	return data
+}
+
+func (m *app) View() tea.View {
+	view := tea.NewView(views.Render(m.dashboardData()))
 	view.AltScreen = true
+	if m.shellSession != nil && m.shellStatus == "" {
+		position, visible := m.shellSession.Cursor()
+		if visible {
+			view.Cursor = tea.NewCursor(m.shellBounds.X+position.X, m.shellBounds.Y+position.Y)
+		}
+	}
 	return view
+}
+
+func waitShell(session *shell.Session) tea.Cmd {
+	return func() tea.Msg { <-session.Events(); return shellEventMsg{session: session} }
+}
+
+func (m *app) closeShell() {
+	if m.shellSession != nil {
+		m.shellSession.Close()
+		m.shellSession = nil
+	}
+	m.shellServer = ""
+	m.shellStatus = ""
 }
 
 // Keep every row's six values, but hide secondary columns on smaller screens.

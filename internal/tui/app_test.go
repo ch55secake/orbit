@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -135,7 +137,14 @@ func TestHelpKeyRemainsPasswordInputDuringAuthentication(t *testing.T) {
 }
 
 func TestSSHShortcutAndReturn(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte("#!/bin/sh\nprintf 'embedded shell ready\\n'\nread answer\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	model, _ := testApp([]config.Server{testServer("alpha")})
+	t.Cleanup(model.closeShell)
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	_, cmd := model.Update(keyPress("s"))
 	if cmd != nil || !strings.Contains(model.message, "no SSH settings") {
 		t.Fatal("direct server opened SSH")
@@ -145,9 +154,16 @@ func TestSSHShortcutAndReturn(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("SSH shortcut returned no process command")
 	}
-	model.Update(sessionEndedMsg{err: errors.New("connection failed")})
-	if !strings.Contains(model.message, "connection failed") {
-		t.Fatal("SSH exit error was hidden")
+	if model.shellSession == nil {
+		t.Fatal("SSH did not open embedded terminal")
+	}
+	model.Update(keyPress("q"))
+	if model.shellSession == nil {
+		t.Fatal("shell input triggered dashboard quit")
+	}
+	model.Update(keyPress("ctrl+]"))
+	if model.shellSession != nil {
+		t.Fatal("SSH close did not restore dashboard")
 	}
 	if model.table.Cursor() != 0 {
 		t.Fatal("SSH return changed selection")
