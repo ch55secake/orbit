@@ -88,7 +88,14 @@ An example configuration is in `examples/config.yaml`.
 Open a shell with `orbit ssh mele` or press `s` in the dashboard. OpenSSH handles
 host-key checks and password prompts using the existing host, user, port, and
 identity settings. Shell sessions are separate from metrics tunnels and do not
-inherit SSH forwarding rules. Exiting the shell returns to the dashboard.
+inherit SSH forwarding rules. On Linux and macOS, the dashboard opens a framed
+terminal in place of the resource cards, keeping the fleet visible. Authentication
+prompts, shell input, pasted text, and `Ctrl+C` stay inside that terminal. It resizes
+with the dashboard and supports terminal applications with an alternate screen.
+Press `Ctrl+]` to disconnect and restore metrics. When the shell exits, its final
+output and exit status remain visible until you close the frame. Dashboard shortcuts
+are inactive while the shell has focus; sessions are not saved and there is no
+scrollback or mouse forwarding. The CLI shell remains a normal full-terminal session.
 
 ## Update a remote Stardust service
 
@@ -123,7 +130,8 @@ or automatic background updates are performed.
 - `↑`/`k`, `↓`/`j`: move through servers
 - `PgUp`/`PgDown`: move a page; `Home`/`End`: jump to the first/last server
 - `r`: refresh all metrics
-- `s`: open the selected server's SSH shell; exiting returns to the dashboard
+- `s`: open the selected server's SSH shell inside the resource pane
+- `Ctrl+]`: close the embedded SSH shell and restore metrics
 - `u`: confirm an update of the selected server's Stardust service to latest
 - `?`: toggle help and the active configuration path
 - `q` or `Ctrl-C`: exit
