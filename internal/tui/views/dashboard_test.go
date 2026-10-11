@@ -1,10 +1,15 @@
 package views
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/ch55secake/orbit/internal/client"
+	"github.com/ch55secake/orbit/internal/config"
+	"github.com/ch55secake/orbit/internal/server"
 )
 
 func TestRenderUsesClearHeaderAndKeyHintMenu(t *testing.T) {
@@ -33,6 +38,62 @@ func TestRenderUsesClearHeaderAndKeyHintMenu(t *testing.T) {
 	}
 	if strings.Contains(view, "//") {
 		t.Fatalf("dashboard header still contains decorative slashes: %q", view)
+	}
+}
+
+func TestDashboardFitsTerminalWidth(t *testing.T) {
+	for _, width := range []int{24, 40, 60, 80, 120} {
+		for _, state := range []string{"online", "offline", "password"} {
+			t.Run(fmt.Sprintf("%s/%d", state, width), func(t *testing.T) {
+				status := server.Status{
+					Server: config.Server{Name: "a-very-long-server-name-for-production"},
+					Metrics: &client.MetricsResponse{Data: client.MetricsData{
+						Hostname: "long-hostname.example.test",
+						CPU:      client.CPU{UsagePercent: 42},
+					}},
+				}
+				if state == "offline" {
+					status.Error = errors.New("connection refused at http://a-long-hostname.example.test:8787/metrics")
+				}
+				view := Render(DashboardData{
+					Width: width, Version: "dev", ConfigPath: "/a/very/long/configuration/path/config.yaml",
+					Table: "SERVER  STATUS", Selected: &status, Statuses: []server.Status{status},
+					PasswordPrompt: state == "password", PasswordServer: status.Server.Name,
+					PasswordInput: strings.Repeat("•", 48),
+				})
+				if got := lipgloss.Width(view); got > width {
+					t.Fatalf("dashboard width = %d, terminal = %d:\n%s", got, width, view)
+				}
+			})
+		}
+	}
+}
+
+func TestFleetSummaryCountsAndRefreshRetainsDetails(t *testing.T) {
+	statuses := []server.Status{
+		{Server: config.Server{Name: "alpha"}, Metrics: &client.MetricsResponse{Data: client.MetricsData{CPU: client.CPU{UsagePercent: 42}}}},
+		{Error: errors.New("offline")},
+		{},
+	}
+	summary := fleetSummary(DashboardData{Statuses: statuses})
+	for _, want := range []string{"SERVERS  3", "1 online", "1 offline", "1 pending"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("summary missing %q: %q", want, summary)
+		}
+	}
+	view := Render(DashboardData{Loading: true, Selected: &statuses[0], Statuses: statuses})
+	for _, want := range []string{"Loading metrics…", "alpha", "42.0%"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("refresh view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestPanelsHaveConsistentWidth(t *testing.T) {
+	for _, content := range []string{"short", strings.Repeat("long text ", 20)} {
+		if width := lipgloss.Width(renderPanel(content, 80)); width != 80 {
+			t.Errorf("panel width = %d, want 80", width)
+		}
 	}
 }
 

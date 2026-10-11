@@ -103,7 +103,7 @@ func newApp(cfg config.Config, configPath, version string) *app {
 			}),
 			table.WithRows(rows),
 			table.WithFocused(true),
-			table.WithHeight(6),
+			table.WithHeight(min(max(len(cfg.Servers)+1, 2), 7)),
 			table.WithStyles(styles),
 		),
 	}
@@ -148,8 +148,10 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.table.SetWidth(max(msg.Width-4, 60))
-		m.table.SetHeight(max(msg.Height/3, 6))
+		m.table.SetWidth(max(msg.Width-4, 1))
+		m.table.SetColumns(tableColumns(max(msg.Width-4, 1)))
+		// Reserve space for the header, full selected-server details, and controls.
+		m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(msg.Height-20, 2)))
 	case metricsMsg:
 		m.statuses = msg.statuses
 		m.loading = false
@@ -184,6 +186,7 @@ func (m *app) View() tea.View {
 		Version:        m.version,
 		ConfigPath:     m.configPath,
 		Table:          m.table.View(),
+		Statuses:       m.statuses,
 		Selected:       selected,
 		Empty:          len(m.cfg.Servers) == 0,
 		Loading:        m.loading,
@@ -195,6 +198,38 @@ func (m *app) View() tea.View {
 	}))
 	view.AltScreen = true
 	return view
+}
+
+// Keep every row's six values, but hide secondary columns on smaller screens.
+// The selected-server panel always retains the full metrics.
+func tableColumns(width int) []table.Column {
+	columns := []table.Column{
+		{Title: "SERVER"},
+		{Title: "STATUS", Width: 7},
+		{Title: "CPU", Width: 7},
+		{Title: "MEMORY", Width: 7},
+		{Title: "DISK", Width: 7},
+		{Title: "UPTIME", Width: 12},
+	}
+	visible := 6
+	switch {
+	case width < 36:
+		visible = 2
+	case width < 56:
+		visible = 3
+	case width < 76:
+		visible = 5
+	}
+	used := 2 // server cell padding
+	for i := 1; i < len(columns); i++ {
+		if i >= visible {
+			columns[i].Width = 0
+		} else {
+			used += columns[i].Width + 2
+		}
+	}
+	columns[0].Width = max(width-used, 1)
+	return columns
 }
 
 func (m *app) fetchMetrics() tea.Cmd {
