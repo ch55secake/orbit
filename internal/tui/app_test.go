@@ -189,8 +189,14 @@ func TestPartialMetricErrorsKeepServerOnlineAndShowWarning(t *testing.T) {
 	if model.message != "Some metrics are unavailable" {
 		t.Fatalf("partial metrics message = %q", model.message)
 	}
+	if got := model.table.Rows()[0][4]; got != "—" {
+		t.Fatalf("failed disk collector shows %q, want unavailable", got)
+	}
 	if view := model.View().Content; !strings.Contains(view, model.message) {
 		t.Fatalf("partial-metrics warning missing from view: %q", view)
+	}
+	if view := model.View().Content; !strings.Contains(view, "permission denied") || !strings.Contains(view, "unavailable") {
+		t.Fatalf("failed metric reason missing from details: %q", view)
 	}
 }
 
