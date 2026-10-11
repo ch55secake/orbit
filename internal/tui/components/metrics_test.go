@@ -171,3 +171,19 @@ func TestExtremeCapacitiesDoNotOverflowCards(t *testing.T) {
 		t.Fatalf("extreme values broke card layout: %q", view)
 	}
 }
+
+func TestSizedCardsExpandWithoutChangingValues(t *testing.T) {
+	data := client.MetricsData{
+		CPU:    client.CPU{UsagePercent: 42},
+		Memory: client.Memory{UsedBytes: 512, TotalBytes: 1024, UsedPercent: 50},
+	}
+	for _, height := range []int{3, 5, 8, 12} {
+		view := SizedCards(data, 76, height)
+		if got := lipgloss.Height(view); got != height*2+1 {
+			t.Errorf("grid height = %d, want %d", got, height*2+1)
+		}
+		if lipgloss.Width(view) != 76 || !strings.Contains(view, "42.0%") || !strings.Contains(view, "512 B / 1.0 KiB") {
+			t.Errorf("expanded cards lost values or overflowed: %q", view)
+		}
+	}
+}

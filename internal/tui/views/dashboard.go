@@ -2,9 +2,13 @@ package views
 
 import (
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/server"
 	"github.com/ch55secake/orbit/internal/tui/components"
 	"github.com/ch55secake/orbit/internal/tui/styles"
@@ -21,6 +25,7 @@ type DashboardData struct {
 	Loading        bool
 	Message        string
 	Width          int
+	Height         int
 	ShowHelp       bool
 	PasswordPrompt bool
 	PasswordServer string
@@ -32,15 +37,19 @@ func Render(data DashboardData) string {
 	if data.Width > 0 {
 		data.Width = max(data.Width-4, 1)
 	}
-	header := styles.Brand.Render("ORBIT") + "  " + styles.Subtitle.Render("Servers")
-	version := styles.Subtitle.Render("v" + data.Version)
-	gap := 3
-	if data.Width > 0 {
-		gap = max(data.Width-lipgloss.Width(header)-lipgloss.Width(version), 1)
+	header := renderMasthead(data)
+	summary := fleetSummary(data)
+	footer := renderMenu(data)
+	help := ""
+	if data.ShowHelp && !data.PasswordPrompt {
+		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · r refresh · q quit · ? close help")
+		if data.Width > 0 {
+			help = ansi.Wrap(help, data.Width, "")
+		}
 	}
-	header += strings.Repeat(" ", gap) + version
-	if data.Width > 0 {
-		header = ansi.Truncate(header, data.Width, "…")
+	bodyHeight := data.Height - 4 - lipgloss.Height(header) - lipgloss.Height(summary) - lipgloss.Height(footer)
+	if help != "" {
+		bodyHeight -= lipgloss.Height(help) + 1
 	}
 	detailWidth := data.Width
 	if terminalWidth >= 110 {
@@ -71,11 +80,33 @@ func Render(data DashboardData) string {
 		if status := tunnelStatus(data.Selected); status != "" {
 			lines = append(lines, status)
 		}
-		lines = append(lines,
-			styles.Subtitle.Render(metrics.Hostname+" · "+metrics.OS.Name+" "+metrics.OS.PlatformVersion),
-			"",
-			components.Cards(metrics, detailWidth),
-		)
+		lines = append(lines, styles.Subtitle.Render(metrics.Hostname+" · "+metrics.OS.Name+" "+metrics.OS.PlatformVersion), "")
+		telemetry := ""
+		cardHeight := 3
+		if expanded(data) && detailWidth >= 56 && !data.ShowHelp {
+			telemetry = networkDetails(data.Selected, detailWidth)
+			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - lipgloss.Height(telemetry) - 2
+			if terminalWidth < 110 {
+				available -= lipgloss.Height(data.Table) + 1
+			}
+			available -= len(metrics.Errors)
+			if data.Message != "" {
+				available -= 2
+			}
+			if available < 6 {
+				available += lipgloss.Height(telemetry) + 1
+				telemetry = ""
+			}
+			cardHeight = available / 2
+		}
+		if cardHeight < 3 {
+			lines = append(lines, components.Summary(metrics))
+		} else {
+			lines = append(lines, components.SizedCards(metrics, detailWidth, cardHeight))
+		}
+		if telemetry != "" {
+			lines = append(lines, "", telemetry)
+		}
 		for _, err := range metrics.Errors {
 			lines = append(lines, styles.Warn.Render(err.Metric+": "+err.Message))
 		}
@@ -99,21 +130,83 @@ func Render(data DashboardData) string {
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left, data.Table, "", detail)
 	if terminalWidth >= 110 {
+		list := data.Table
+		if expanded(data) && !data.ShowHelp && !data.PasswordPrompt {
+			info := hostDetails(data.Selected, TableWidth(terminalWidth))
+			if info != "" && bodyHeight >= lipgloss.Height(list)+lipgloss.Height(info)+1 {
+				list = lipgloss.JoinVertical(lipgloss.Left,
+					lipgloss.NewStyle().Height(bodyHeight-lipgloss.Height(info)-1).Render(list), "", info,
+				)
+			}
+		}
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
-			lipgloss.NewStyle().Width(TableWidth(terminalWidth)).Render(data.Table),
+			lipgloss.NewStyle().Width(TableWidth(terminalWidth)).Render(list),
 			"   ",
 			detail,
 		)
 	}
-	sections := []string{header, fleetSummary(data), "", body, "", renderMenu(data)}
-	if data.ShowHelp && !data.PasswordPrompt {
-		help := styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · r refresh · q quit · ? close help")
-		if data.Width > 0 {
-			help = ansi.Wrap(help, data.Width, "")
-		}
+	if bodyHeight > lipgloss.Height(body) {
+		body = lipgloss.NewStyle().Height(bodyHeight).Render(body)
+	}
+	sections := []string{header, summary, "", body, "", footer}
+	if help != "" {
 		sections = append(sections, "", help)
 	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(lipgloss.JoinVertical(lipgloss.Left, sections...))
+}
+
+func hostDetails(status *server.Status, width int) string {
+	if status == nil {
+		return ""
+	}
+	var lines []string
+	if status.Metrics != nil {
+		data := status.Metrics.Data
+		lines = append(lines, styles.Label.Render("HOST"), styles.Title.Render(data.Hostname),
+			styles.Subtitle.Render(strings.TrimSpace(data.OS.Name+" "+data.OS.PlatformVersion+" "+data.OS.KernelArch)), "")
+	}
+	lines = append(lines, styles.Label.Render("LINK"))
+	// Only show the origin: userinfo, paths, and query strings can contain secrets.
+	if address, err := url.Parse(status.Server.Address); err == nil && address.Host != "" {
+		lines = append(lines, styles.Value.Render(address.Scheme+"://"+address.Host))
+	}
+	if ssh := status.Server.SSH; ssh != nil {
+		peer := ssh.Host
+		if ssh.Port > 0 {
+			peer = net.JoinHostPort(ssh.Host, strconv.Itoa(ssh.Port))
+		}
+		if ssh.User != "" {
+			peer = ssh.User + "@" + peer
+		}
+		lines = append(lines, styles.Subtitle.Render("SSH  "+peer), tunnelStatus(status))
+	} else {
+		lines = append(lines, styles.Subtitle.Render("Direct HTTP connection"))
+	}
+	return ansi.Wrap(lipgloss.JoinVertical(lipgloss.Left, lines...), width, "")
+}
+
+func networkDetails(status *server.Status, width int) string {
+	data := status.Metrics.Data
+	lines := []string{styles.Label.Render("NETWORK · cumulative counters")}
+	failed := false
+	for _, err := range data.Errors {
+		if strings.EqualFold(err.Metric, "network") {
+			failed = true
+			break
+		}
+	}
+	if failed {
+		lines = append(lines, styles.Warn.Render("— unavailable"))
+	} else {
+		lines = append(lines,
+			components.Metric("RX", fmt.Sprintf("%s · %d packets", client.FormatBytes(data.Network.BytesReceived), data.Network.PacketsReceived)),
+			components.Metric("TX", fmt.Sprintf("%s · %d packets", client.FormatBytes(data.Network.BytesSent), data.Network.PacketsSent)),
+		)
+	}
+	if !status.Metrics.Timestamp.IsZero() {
+		lines = append(lines, styles.Subtitle.Render("Sample  "+status.Metrics.Timestamp.UTC().Format("2006-01-02 15:04:05 UTC")))
+	}
+	return ansi.Wrap(lipgloss.JoinVertical(lipgloss.Left, lines...), width, "")
 }
 
 // TableWidth is shared with the model so layout and column sizing stay in sync.
