@@ -87,6 +87,7 @@ An example configuration is in `examples/config.yaml`.
 ## Dashboard controls
 
 - `↑`/`k`, `↓`/`j`: move through servers
+- `PgUp`/`PgDown`: move a page; `Home`/`End`: jump to the first/last server
 - `r`: refresh all metrics
 - `?`: toggle help and the active configuration path
 - `q` or `Ctrl-C`: exit
@@ -99,6 +100,8 @@ Taller terminals expand the metric cards, with ASCII Saturn artwork when space
 allows, and show cumulative network counters plus the agent's sample time.
 Short terminals keep the compact layout; network counters are totals, not
 transfer rates.
+On wide, tall terminals the fleet sits beside Saturn, rather than below it.
+The fleet summary shows the selected server's position in the list.
 
 ## Stardust API contract
 

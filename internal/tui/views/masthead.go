@@ -32,6 +32,17 @@ func showSaturn(data DashboardData) bool {
 	return data.Width >= 60 && data.Height >= 40
 }
 
+func FleetInMasthead(width, height int) bool {
+	return width >= 110 && height >= 40
+}
+
+func FleetWidth(width, height int) int {
+	if FleetInMasthead(width, height) {
+		return width - 4 - lipgloss.Width(saturn) - 2
+	}
+	return TableWidth(width)
+}
+
 // data.Width is the available content width, excluding outer padding.
 func renderMasthead(data DashboardData) string {
 	if showSaturn(data) {
@@ -39,6 +50,9 @@ func renderMasthead(data DashboardData) string {
 			styles.Title.Render("ORBIT")+"  "+styles.Subtitle.Render("v"+data.Version),
 			styles.Subtitle.Render("Servers"),
 		)
+		if FleetInMasthead(data.Width+4, data.Height) {
+			left = lipgloss.JoinVertical(lipgloss.Left, left, fleetSummary(data), "", data.Table)
+		}
 		art := styles.Brand.Render(saturn)
 		return lipgloss.JoinHorizontal(lipgloss.Top,
 			lipgloss.NewStyle().Width(data.Width-lipgloss.Width(art)-2).Render(left),

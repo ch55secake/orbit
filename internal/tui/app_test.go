@@ -32,16 +32,41 @@ func TestDashboardLayouts(t *testing.T) {
 			if width == 120 {
 				var split bool
 				for _, line := range strings.Split(view, "\n") {
-					if strings.Contains(line, "Server") && strings.Contains(line, "mele") {
+					if strings.Contains(line, "Server") && strings.Contains(line, "UU[[[") {
 						split = true
 					}
 				}
 				if !split {
-					t.Fatalf("wide view should place selected details beside the fleet:\n%s", view)
+					t.Fatalf("wide view should place the fleet beside Saturn:\n%s", view)
 				}
 			}
 			t.Log("\n" + view)
 		})
+	}
+}
+
+func TestFleetPagingAndSelectionSurviveLayoutChanges(t *testing.T) {
+	targets := make([]config.Server, 12)
+	for i := range targets {
+		targets[i] = testServer(fmt.Sprintf("node-%02d", i))
+	}
+	model, _ := testApp(targets)
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model.Update(arrowKey(tea.KeyEnd))
+	if model.table.Cursor() != 11 || !strings.Contains(model.View().Content, "selected 12/12") || !strings.Contains(model.table.View(), "node-11") {
+		t.Fatal("last server is not selected and visible in the masthead fleet")
+	}
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	if model.table.Cursor() != 11 || !strings.Contains(model.View().Content, "selected 12/12") {
+		t.Fatal("changing layout lost the selected server")
+	}
+	model.Update(arrowKey(tea.KeyHome))
+	if model.table.Cursor() != 0 {
+		t.Fatal("home did not select the first server")
+	}
+	model.Update(arrowKey(tea.KeyPgDown))
+	if model.table.Cursor() == 0 {
+		t.Fatal("page down did not advance the fleet selection")
 	}
 }
 
