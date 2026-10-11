@@ -88,10 +88,13 @@ An example configuration is in `examples/config.yaml`.
 
 - `↑`/`k`, `↓`/`j`: move through servers
 - `r`: refresh all metrics
+- `?`: toggle help and the active configuration path
 - `q` or `Ctrl-C`: exit
 
 The dashboard reports loading and connection errors without hiding the rest of
 the configured servers.
+Wide terminals place the server list beside the selected server's metric cards;
+smaller terminals stack the sections and keep full metrics in the detail view.
 
 ## Stardust API contract
 

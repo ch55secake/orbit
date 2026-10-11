@@ -21,32 +21,30 @@ type DashboardData struct {
 	Loading        bool
 	Message        string
 	Width          int
+	ShowHelp       bool
 	PasswordPrompt bool
 	PasswordServer string
 	PasswordInput  string
 }
 
 func Render(data DashboardData) string {
-	header := lipgloss.JoinHorizontal(lipgloss.Top,
-		styles.Brand.Render("ORBIT"),
-		"   ",
-		styles.Title.Render("SERVER DASHBOARD"),
-		"   ",
-		styles.Subtitle.Render("v"+data.Version),
-	)
-	configLine := lipgloss.JoinHorizontal(lipgloss.Left,
-		styles.Label.Render("CONFIG"),
-		"  ",
-		styles.Subtitle.Render(data.ConfigPath),
-	)
-	if data.Width > 0 && lipgloss.Width(header) > data.Width {
-		header = lipgloss.JoinVertical(lipgloss.Left,
-			styles.Brand.Render("ORBIT")+"   "+styles.Subtitle.Render("v"+data.Version),
-			styles.Title.Render("SERVER DASHBOARD"),
-		)
-	}
+	terminalWidth := data.Width
 	if data.Width > 0 {
-		configLine = ansi.Truncate(configLine, data.Width, "…")
+		data.Width = max(data.Width-4, 1)
+	}
+	header := styles.Brand.Render("ORBIT") + "  " + styles.Subtitle.Render("Servers")
+	version := styles.Subtitle.Render("v" + data.Version)
+	gap := 3
+	if data.Width > 0 {
+		gap = max(data.Width-lipgloss.Width(header)-lipgloss.Width(version), 1)
+	}
+	header += strings.Repeat(" ", gap) + version
+	if data.Width > 0 {
+		header = ansi.Truncate(header, data.Width, "…")
+	}
+	detailWidth := data.Width
+	if terminalWidth >= 110 {
+		detailWidth = data.Width - TableWidth(terminalWidth) - 3
 	}
 
 	var detail string
@@ -61,7 +59,7 @@ func Render(data DashboardData) string {
 	case data.Selected == nil:
 		detail = styles.Subtitle.Render("Select a server to inspect its metrics")
 	case data.Selected.Error != nil:
-		lines := []string{styles.Title.Render(data.Selected.Server.Name) + "  " + styles.Bad.Render("OFFLINE")}
+		lines := []string{styles.Title.Render(data.Selected.Server.Name) + "  " + styles.Bad.Render("● offline")}
 		if status := tunnelStatus(data.Selected); status != "" {
 			lines = append(lines, status)
 		}
@@ -69,14 +67,14 @@ func Render(data DashboardData) string {
 		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	case data.Selected.Metrics != nil:
 		metrics := data.Selected.Metrics.Data
-		lines := []string{styles.Title.Render(data.Selected.Server.Name) + "  " + styles.Good.Render("ONLINE")}
+		lines := []string{styles.Title.Render(data.Selected.Server.Name) + "  " + styles.Good.Render("● online")}
 		if status := tunnelStatus(data.Selected); status != "" {
 			lines = append(lines, status)
 		}
 		lines = append(lines,
 			styles.Subtitle.Render(metrics.Hostname+" · "+metrics.OS.Name+" "+metrics.OS.PlatformVersion),
 			"",
-			components.Summary(metrics),
+			components.Cards(metrics, detailWidth),
 		)
 		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	}
@@ -86,29 +84,41 @@ func Render(data DashboardData) string {
 	if detail == "" {
 		detail = styles.Subtitle.Render("Waiting for metrics…")
 	}
-	sections := []string{
-		header,
-		configLine,
-		"",
-		fleetSummary(data),
-		renderPanel(data.Table, data.Width),
-		"",
-	}
 	if data.PasswordPrompt {
-		sections = append(sections, renderPanel(lipgloss.JoinVertical(lipgloss.Left,
+		detail = renderPanel(lipgloss.JoinVertical(lipgloss.Left,
 			styles.Title.Render("SSH password required: "+data.PasswordServer),
 			styles.Subtitle.Render("Used for this connection only; never saved."),
 			"",
 			"Password: "+data.PasswordInput,
-		), data.Width))
-	} else {
-		sections = append(sections, renderPanel(detail, data.Width))
+		), detailWidth)
+	} else if detailWidth > 0 {
+		detail = ansi.Wrap(detail, detailWidth, "")
 	}
-	sections = append(sections,
-		"",
-		renderMenu(data),
-	)
-	return strings.TrimSpace(lipgloss.JoinVertical(lipgloss.Left, sections...))
+	body := lipgloss.JoinVertical(lipgloss.Left, data.Table, "", detail)
+	if terminalWidth >= 110 {
+		body = lipgloss.JoinHorizontal(lipgloss.Top,
+			lipgloss.NewStyle().Width(TableWidth(terminalWidth)).Render(data.Table),
+			"   ",
+			detail,
+		)
+	}
+	sections := []string{header, fleetSummary(data), "", body, "", renderMenu(data)}
+	if data.ShowHelp && !data.PasswordPrompt {
+		help := styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · r refresh · q quit · ? close help")
+		if data.Width > 0 {
+			help = ansi.Wrap(help, data.Width, "")
+		}
+		sections = append(sections, "", help)
+	}
+	return lipgloss.NewStyle().Padding(1, 2).Render(lipgloss.JoinVertical(lipgloss.Left, sections...))
+}
+
+// TableWidth is shared with the model so layout and column sizing stay in sync.
+func TableWidth(terminalWidth int) int {
+	if terminalWidth >= 110 {
+		return min(50, max(38, (terminalWidth-4)/3))
+	}
+	return max(terminalWidth-4, 1)
 }
 
 func renderPanel(content string, width int) string {
@@ -128,7 +138,7 @@ func fleetSummary(data DashboardData) string {
 			online++
 		}
 	}
-	parts := []string{styles.Label.Render(fmt.Sprintf("SERVERS  %d", len(data.Statuses)))}
+	parts := []string{styles.Label.Render(fmt.Sprintf("%d servers", len(data.Statuses)))}
 	if online > 0 {
 		parts = append(parts, styles.Good.Render(fmt.Sprintf("%d online", online)))
 	}
@@ -157,7 +167,7 @@ func renderMenu(data DashboardData) string {
 		return fitMenuHints(hints, data.Width)
 	}
 	if data.Empty {
-		return menuHint("q", "quit")
+		return fitMenuHints([]string{menuHint("?", "help"), menuHint("q", "quit")}, data.Width)
 	}
 	upLabel, downLabel := "previous", "next"
 	if data.Width > 0 && data.Width < 60 {
@@ -170,7 +180,7 @@ func renderMenu(data DashboardData) string {
 	if !data.Loading {
 		hints = append(hints, menuHint("r", "refresh"))
 	}
-	hints = append(hints, menuHint("q", "quit"))
+	hints = append(hints, menuHint("?", "help"), menuHint("q", "quit"))
 	return fitMenuHints(hints, data.Width)
 }
 

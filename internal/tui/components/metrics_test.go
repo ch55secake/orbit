@@ -34,3 +34,21 @@ func TestSummaryStacksMetrics(t *testing.T) {
 		}
 	}
 }
+
+func TestMetricCardsFitAndRetainCapacity(t *testing.T) {
+	data := client.MetricsData{
+		CPU:    client.CPU{UsagePercent: 42},
+		Memory: client.Memory{UsedBytes: 512, TotalBytes: 1024, UsedPercent: 50},
+	}
+	for _, width := range []int{56, 63, 76, 120} {
+		cards := Cards(data, width)
+		if got := lipgloss.Width(cards); got != width {
+			t.Errorf("cards width = %d, want %d", got, width)
+		}
+		for _, want := range []string{"CPU", "Memory", "Disk", "Uptime", "42.0%", "512 B / 1.0 KiB"} {
+			if !strings.Contains(cards, want) {
+				t.Errorf("cards missing %q: %q", want, cards)
+			}
+		}
+	}
+}
