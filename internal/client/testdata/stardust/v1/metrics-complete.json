@@ -1,0 +1,35 @@
+{
+  "api_version": "v1",
+  "timestamp": "2026-10-11T12:34:56Z",
+  "data": {
+    "hostname": "orbit-fixture",
+    "os": {
+      "name": "Ubuntu",
+      "platform": "ubuntu",
+      "platform_version": "24.04",
+      "kernel_arch": "x86_64"
+    },
+    "cpu": {
+      "usage_percent": 23.5,
+      "logical_cores": 8
+    },
+    "memory": {
+      "used_bytes": 3221225472,
+      "total_bytes": 8589934592,
+      "used_percent": 37.5
+    },
+    "disk": {
+      "path": "/",
+      "used_bytes": 10737418240,
+      "total_bytes": 42949672960,
+      "used_percent": 25.0
+    },
+    "uptime_seconds": 93784,
+    "network": {
+      "bytes_received": 1048576,
+      "bytes_sent": 2097152,
+      "packets_received": 1500,
+      "packets_sent": 1200
+    }
+  }
+}

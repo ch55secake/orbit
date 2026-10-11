@@ -92,14 +92,31 @@ func New(timeout time.Duration) *Client {
 
 func (c *Client) Health(ctx context.Context, address string) (HealthResponse, error) {
 	var response HealthResponse
-	err := c.get(ctx, address, "/api/v1/health", &response)
-	return response, err
+	if err := c.get(ctx, address, "/api/"+APIVersion+"/health", &response); err != nil {
+		return response, err
+	}
+	if err := validateAPIVersion(response.APIVersion); err != nil {
+		return response, err
+	}
+	return response, nil
 }
 
 func (c *Client) Metrics(ctx context.Context, address string) (MetricsResponse, error) {
 	var response MetricsResponse
-	err := c.get(ctx, address, "/api/v1/metrics", &response)
-	return response, err
+	if err := c.get(ctx, address, "/api/"+APIVersion+"/metrics", &response); err != nil {
+		return response, err
+	}
+	if err := validateAPIVersion(response.APIVersion); err != nil {
+		return response, err
+	}
+	return response, nil
+}
+
+func validateAPIVersion(version string) error {
+	if version != APIVersion {
+		return fmt.Errorf("incompatible Stardust API version %q (supported: %q)", version, APIVersion)
+	}
+	return nil
 }
 
 func (c *Client) get(ctx context.Context, address, endpoint string, target any) error {
@@ -120,6 +137,11 @@ func (c *Client) get(ctx context.Context, address, endpoint string, target any) 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		var errorResponse ErrorResponse
 		if decodeErr := json.NewDecoder(response.Body).Decode(&errorResponse); decodeErr == nil && errorResponse.Error.Code != "" {
+			if errorResponse.APIVersion != "" {
+				if versionErr := validateAPIVersion(errorResponse.APIVersion); versionErr != nil {
+					return versionErr
+				}
+			}
 			return fmt.Errorf("stardust returned %s: %s", errorResponse.Error.Code, errorResponse.Error.Message)
 		}
 		return fmt.Errorf("stardust returned HTTP %d", response.StatusCode)
