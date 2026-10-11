@@ -8,31 +8,36 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-const saturn = `  .                  *
-           .-"""-.
-      _.--' /   \ '--._
-    .'     |     |     '.
-   (        \   /        )
-    '._      '-'      _.'
-       '--.._____..--'     .`
-
-const wordmark = `  ___  ____  ____ ___ _____
- / _ \|  _ \| __ )_ _|_   _|
-| (_) | |_) |  _ \| |  | |
- \___/|_| \_\|___/___| |_|`
+const saturn = "                     _.oo.\n" +
+	"                 _.u[[/;:,.         .odMMMMMM'\n" +
+	"              .o888UU[[[/;:-.  .o@P^    MMM^\n" +
+	"             oN88888UU[[[/;::-.        dP^\n" +
+	"            dNMMNN888UU[[[/;:--.   .o@P^\n" +
+	"           ,MMMMMMN888UU[[/;::-. o@^\n" +
+	"           NNMMMNN888UU[[[/~.o@P^\n" +
+	"           888888888UU[[[/o@^-..\n" +
+	"          oI8888UU[[[/o@P^:--..\n" +
+	"       .@^  YUU[[[/o@^;::---..\n" +
+	"     oMP     ^/o@P^;:::---..\n" +
+	"  .dMMM    .o@^ ^;::---...\n" +
+	" dMMMMMMM@^`       `^^^^\n" +
+	"YMMMUP^\n" +
+	" ^^"
 
 func expanded(data DashboardData) bool {
 	return data.Width >= 60 && data.Height >= 32
 }
 
+func showSaturn(data DashboardData) bool {
+	return data.Width >= 60 && data.Height >= 40
+}
+
 // data.Width is the available content width, excluding outer padding.
 func renderMasthead(data DashboardData) string {
-	if expanded(data) {
+	if showSaturn(data) {
 		left := lipgloss.JoinVertical(lipgloss.Left,
-			styles.Brand.Render(wordmark),
-			"",
 			styles.Title.Render("ORBIT")+"  "+styles.Subtitle.Render("v"+data.Version),
-			styles.Subtitle.Render("Servers · local mission control"),
+			styles.Subtitle.Render("Servers"),
 		)
 		art := styles.Brand.Render(saturn)
 		return lipgloss.JoinHorizontal(lipgloss.Top,

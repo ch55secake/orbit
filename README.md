@@ -95,9 +95,10 @@ The dashboard reports loading and connection errors without hiding the rest of
 the configured servers.
 Wide terminals place the server list beside the selected server's metric cards;
 smaller terminals stack the sections and keep full metrics in the detail view.
-Taller terminals expand the metric cards beneath an ASCII Saturn masthead and
-show cumulative network counters plus the agent's sample time. Short terminals
-keep the compact layout; network counters are totals, not transfer rates.
+Taller terminals expand the metric cards, with ASCII Saturn artwork when space
+allows, and show cumulative network counters plus the agent's sample time.
+Short terminals keep the compact layout; network counters are totals, not
+transfer rates.
 
 ## Stardust API contract
 

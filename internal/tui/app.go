@@ -194,6 +194,9 @@ func (m *app) resizeTableHeight() {
 			}
 		}
 	}
+	if m.width >= 64 && m.height >= 40 {
+		reserved += 8 // taller Saturn artwork replaces the seven-line masthead
+	}
 	m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(m.height-reserved, 2)))
 }
 
