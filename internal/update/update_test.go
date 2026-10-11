@@ -86,6 +86,8 @@ func TestRemoteUpdateTransactions(t *testing.T) {
 				checksums := filepath.Join(dir, "checksums")
 				write(checksums, hash+"  stardust_1.2.3_"+osName+"_amd64.tar.gz\n", 0600)
 				write(filepath.Join(bin, "id"), "#!/bin/sh\necho \"${MOCK_UID:-0}\"\n", 0700)
+				// Exercise macOS's stock Bash 3.2 locally, not a newer PATH Bash.
+				write(filepath.Join(bin, "bash"), "#!/bin/sh\nexec /bin/bash \"$@\"\n", 0700)
 				write(filepath.Join(bin, "sudo"), "#!/bin/sh\n[ \"$1\" != -- ] || shift\nexport MOCK_UID=0\nexec \"$@\"\n", 0700)
 				write(filepath.Join(bin, "uname"), "#!/bin/sh\nif [ \"$1\" = -s ]; then echo "+platform+"; else echo x86_64; fi\n", 0700)
 				write(filepath.Join(bin, "PlistBuddy"), "#!/bin/sh\nprintf '%s\\n' \"$MOCK_BINARY\"\n", 0700)
