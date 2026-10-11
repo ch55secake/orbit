@@ -3,6 +3,7 @@ package styles
 import "charm.land/lipgloss/v2"
 
 var (
+	Brand    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#38bdf8"))
 	Title    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7dd3fc"))
 	Subtitle = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b"))
 	Panel    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#334155")).Padding(0, 1)
@@ -11,5 +12,6 @@ var (
 	Good     = lipgloss.NewStyle().Foreground(lipgloss.Color("#4ade80"))
 	Bad      = lipgloss.NewStyle().Foreground(lipgloss.Color("#fb7185"))
 	Warn     = lipgloss.NewStyle().Foreground(lipgloss.Color("#fbbf24"))
-	Footer   = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b"))
+	Footer   = lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8"))
+	Key      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0f172a")).Background(lipgloss.Color("#7dd3fc")).Padding(0, 1)
 )
