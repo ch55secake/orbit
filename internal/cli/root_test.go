@@ -138,7 +138,7 @@ func TestPrintStatusReportsTunnelStateAndErrors(t *testing.T) {
 	t.Run("connected", func(t *testing.T) {
 		var output bytes.Buffer
 		api := &statusMetricsClient{response: client.MetricsResponse{Data: client.MetricsData{CPU: client.CPU{UsagePercent: 12}}}}
-		if err := printStatus(context.Background(), &output, config.Config{Servers: []config.Server{target}}, api, &statusTunnelManager{}); err != nil {
+		if err := printStatus(context.Background(), &output, config.Config{Servers: []config.Server{target}}, api, &statusTunnelManager{}, nil); err != nil {
 			t.Fatalf("print status: %v", err)
 		}
 		for _, expected := range []string{"tunnel: connected", "status: online", "CPU: 12.0%"} {
@@ -152,7 +152,7 @@ func TestPrintStatusReportsTunnelStateAndErrors(t *testing.T) {
 		var output bytes.Buffer
 		api := &statusMetricsClient{}
 		tunnels := &statusTunnelManager{ensureErr: errors.New("SSH key rejected")}
-		if err := printStatus(context.Background(), &output, config.Config{Servers: []config.Server{target}}, api, tunnels); err != nil {
+		if err := printStatus(context.Background(), &output, config.Config{Servers: []config.Server{target}}, api, tunnels, nil); err != nil {
 			t.Fatalf("print status: %v", err)
 		}
 		for _, expected := range []string{"tunnel: disconnected", "status: offline", "SSH key rejected"} {
@@ -164,6 +164,32 @@ func TestPrintStatusReportsTunnelStateAndErrors(t *testing.T) {
 			t.Fatalf("metrics calls = %d, want no request after tunnel startup fails", api.calls)
 		}
 	})
+}
+
+func TestPromptSSHPasswordRejectsNonInteractiveInput(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Errorf("close test input reader: %v", err)
+		}
+	}()
+	defer func() {
+		if err := writer.Close(); err != nil {
+			t.Errorf("close test input writer: %v", err)
+		}
+	}()
+	previousStdin := os.Stdin
+	os.Stdin = reader
+	defer func() { os.Stdin = previousStdin }()
+
+	target := config.Server{SSH: &config.SSHConfig{Host: "production", User: "orbit"}}
+	_, err = promptSSHPassword(context.Background(), target)
+	if err == nil || !strings.Contains(err.Error(), "requires an interactive terminal") {
+		t.Fatalf("non-interactive prompt error = %v", err)
+	}
 }
 
 type statusMetricsClient struct {
@@ -183,6 +209,10 @@ type statusTunnelManager struct {
 
 func (f *statusTunnelManager) Ensure(context.Context, config.Server) error {
 	return f.ensureErr
+}
+
+func (*statusTunnelManager) EnsureWithPassword(context.Context, config.Server, []byte) error {
+	return nil
 }
 
 func (*statusTunnelManager) Reconnect(context.Context, config.Server) error { return nil }

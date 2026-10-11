@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/ch55secake/orbit/internal/server"
 	"github.com/ch55secake/orbit/internal/tui"
 	"github.com/ch55secake/orbit/internal/tunnel"
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 )
 
@@ -293,7 +295,7 @@ func statusCommand(configPath *string) *cobra.Command {
 				return err
 			}
 			tunnels := tunnel.NewManager()
-			statusErr := printStatus(cmd.Context(), cmd.OutOrStdout(), cfg, client.New(timeout), tunnels)
+			statusErr := printStatus(cmd.Context(), cmd.OutOrStdout(), cfg, client.New(timeout), tunnels, promptSSHPassword)
 			return errors.Join(statusErr, tunnels.Close())
 		},
 	}
@@ -301,7 +303,7 @@ func statusCommand(configPath *string) *cobra.Command {
 	return command
 }
 
-func printStatus(ctx context.Context, out io.Writer, cfg config.Config, apiClient server.MetricsClient, tunnels server.TunnelManager) error {
+func printStatus(ctx context.Context, out io.Writer, cfg config.Config, apiClient server.MetricsClient, tunnels server.TunnelManager, passwordPrompt server.PasswordPrompt) error {
 	if len(cfg.Servers) == 0 {
 		_, err := fmt.Fprintln(out, "No servers configured.")
 		return err
@@ -315,7 +317,7 @@ func printStatus(ctx context.Context, out io.Writer, cfg config.Config, apiClien
 		if _, err := fmt.Fprintf(out, "%s (%s)\n", target.Name, target.Address); err != nil {
 			return err
 		}
-		status := server.FetchMetrics(ctx, target, apiClient, tunnels)
+		status := server.FetchMetricsWithPrompt(ctx, target, apiClient, tunnels, passwordPrompt)
 		if target.SSH != nil {
 			if _, err := fmt.Fprintf(out, "  tunnel: %s\n", status.TunnelState); err != nil {
 				return err
@@ -350,4 +352,31 @@ func printStatus(ctx context.Context, out io.Writer, cfg config.Config, apiClien
 		}
 	}
 	return nil
+}
+
+func promptSSHPassword(ctx context.Context, target config.Server) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !term.IsTerminal(os.Stdin.Fd()) {
+		return nil, errors.New("SSH password authentication requires an interactive terminal; configure SSH key or agent authentication for non-interactive use")
+	}
+	user := target.SSH.User
+	if user == "" {
+		user = "SSH user"
+	}
+	if _, err := fmt.Fprintf(os.Stderr, "SSH password for %s@%s: ", user, target.SSH.Host); err != nil {
+		return nil, err
+	}
+	password, err := term.ReadPassword(os.Stdin.Fd())
+	_, writeErr := fmt.Fprintln(os.Stderr)
+	if err != nil {
+		clear(password)
+		return nil, err
+	}
+	if writeErr != nil {
+		clear(password)
+		return nil, writeErr
+	}
+	return password, nil
 }

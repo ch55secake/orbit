@@ -77,6 +77,10 @@ must use a loopback IP and each managed tunnel needs a unique local port. Use
 Orbit starts OpenSSH in non-interactive forwarding-only mode (`ssh -N -L`); it
 does not invoke a shell or send a remote command. Configure key-based SSH
 authentication through an identity file, an agent, or your OpenSSH config.
+If key/agent authentication is rejected, the TUI prompts for a concealed SSH
+password, and interactive `orbit status` does the same. Passwords are kept only
+in memory for that connection attempt and are never written to the server
+configuration. Non-interactive `orbit status` requires key/agent authentication.
 
 An example configuration is in `examples/config.yaml`.
 
