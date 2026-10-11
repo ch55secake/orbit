@@ -89,7 +89,7 @@ make build
 make lint
 ```
 
-The release workflow creates a prerelease tag (`v0.0.0-main.<run>`) and
-publishes automatically for pushes to `main`. Explicit version tags matching
-`v*` are also released, and the workflow can be started manually from GitHub
-Actions.
+The shared release workflow automatically publishes a semantic-versioned
+release on pushes to `main` and can also be started manually from GitHub
+Actions. It selects the next patch version, starting at `v1.0.0` when no
+release exists.

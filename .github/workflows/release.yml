@@ -1,66 +1,21 @@
-name: release
+name: Release
 
 on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  create_tag:
-    name: create-release-tag
-    if: ${{ github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.tag.outputs.tag }}
-    steps:
-      - name: check-out-source
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: create-release-tag
-        id: tag
-        run: |
-          tag="v0.0.0-main.${GITHUB_RUN_NUMBER}"
-          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
-            echo "Tag ${tag} already exists; reusing it."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag "${tag}" "${GITHUB_SHA}"
-            git push origin "${tag}"
-          fi
-          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-
   release:
-    name: release-with-goreleaser
-    needs: create_tag
-    if: ${{ always() && (startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && needs.create_tag.result == 'success')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: check-out-source
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.create_tag.outputs.tag || github.ref }}
-
-      - name: set-up-go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: release-with-goreleaser
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: '~> v2'
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: ch55secake/cheesecake-factory/.github/workflows/release.yml@ad918beeae2a690d153e1153fadb8e1d82a3ee02
+    with:
+      binary-name: orbit
+      build-package: ./cmd/orbit
+      cgo-enabled: '0'
+      ldflags: -s -w -X main.version={{.Version}}
+      go-version-file: go.mod
+      targets: '[{"goos":"darwin","goarch":"amd64"},{"goos":"darwin","goarch":"arm64"},{"goos":"linux","goarch":"amd64"},{"goos":"linux","goarch":"arm64"}]'
