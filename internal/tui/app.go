@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -20,20 +21,21 @@ import (
 )
 
 type app struct {
-	version         string
-	configPath      string
-	ctx             context.Context
-	cfg             config.Config
-	apiClient       metricsClient
-	tunnels         server.TunnelManager
-	table           table.Model
-	statuses        []server.Status
-	loading         bool
-	message         string
-	width           int
-	program         *tea.Program
-	passwordRequest *passwordRequest
-	passwordInput   []byte
+	version          string
+	configPath       string
+	ctx              context.Context
+	cfg              config.Config
+	apiClient        metricsClient
+	tunnels          server.TunnelManager
+	table            table.Model
+	statuses         []server.Status
+	loading          bool
+	message          string
+	width            int
+	program          *tea.Program
+	passwordRequest  *passwordRequest
+	passwordInput    []byte
+	passwordPromptMu sync.Mutex
 }
 
 type metricsMsg struct {
@@ -201,14 +203,22 @@ func (m *app) fetchMetrics() tea.Cmd {
 	ctx := m.ctx
 	return func() tea.Msg {
 		statuses := make([]server.Status, len(targets))
+		var waitGroup sync.WaitGroup
 		for i, target := range targets {
-			statuses[i] = server.FetchMetricsWithPrompt(ctx, target, apiClient, tunnels, m.requestPassword)
+			waitGroup.Add(1)
+			go func(index int, target config.Server) {
+				defer waitGroup.Done()
+				statuses[index] = server.FetchMetricsWithPrompt(ctx, target, apiClient, tunnels, m.requestPassword)
+			}(i, target)
 		}
+		waitGroup.Wait()
 		return metricsMsg{statuses: statuses}
 	}
 }
 
 func (m *app) requestPassword(ctx context.Context, target config.Server) ([]byte, error) {
+	m.passwordPromptMu.Lock()
+	defer m.passwordPromptMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
