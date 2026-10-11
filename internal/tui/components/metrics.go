@@ -5,12 +5,40 @@ import (
 	"math"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/tui/styles"
 )
 
 func Metric(label, value string) string {
 	return styles.Label.Render(label+":") + " " + styles.Value.Render(value)
+}
+
+// Cards gives metrics room to breathe without nesting more bordered panels.
+func Cards(data client.MetricsData, width int) string {
+	if width < 56 {
+		return Summary(data)
+	}
+	left := (width - 2) / 2
+	right := width - 2 - left
+	card := func(label, value, caption string, size int) string {
+		return styles.Card.Width(size).Render(lipgloss.JoinVertical(lipgloss.Left,
+			styles.Label.Render(label),
+			styles.Title.Render(value),
+			styles.Subtitle.Render(caption),
+		))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.JoinHorizontal(lipgloss.Top,
+			card("CPU", Percent(data.CPU.UsagePercent), UsageBar(data.CPU.UsagePercent), left), "  ",
+			card("Memory", Percent(data.Memory.UsedPercent), client.FormatBytes(data.Memory.UsedBytes)+" / "+client.FormatBytes(data.Memory.TotalBytes), right),
+		),
+		"",
+		lipgloss.JoinHorizontal(lipgloss.Top,
+			card("Disk", Percent(data.Disk.UsedPercent), client.FormatBytes(data.Disk.UsedBytes)+" / "+client.FormatBytes(data.Disk.TotalBytes), left), "  ",
+			card("Uptime", client.FormatUptime(data.Uptime), "since boot", right),
+		),
+	)
 }
 
 func Percent(value float64) string {

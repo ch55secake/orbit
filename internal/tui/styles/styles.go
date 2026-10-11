@@ -3,9 +3,9 @@ package styles
 import "charm.land/lipgloss/v2"
 
 var (
-	Brand    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#38bdf8"))
-	Title    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7dd3fc"))
-	Subtitle = lipgloss.NewStyle().Foreground(lipgloss.Color("#64748b"))
+	Brand    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#a5b4fc"))
+	Title    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e2e8f0"))
+	Subtitle = lipgloss.NewStyle().Foreground(lipgloss.Color("#8993a5"))
 	Panel    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#334155")).Padding(0, 1)
 	Label    = lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8"))
 	Value    = lipgloss.NewStyle().Foreground(lipgloss.Color("#e2e8f0"))
@@ -13,5 +13,6 @@ var (
 	Bad      = lipgloss.NewStyle().Foreground(lipgloss.Color("#fb7185"))
 	Warn     = lipgloss.NewStyle().Foreground(lipgloss.Color("#fbbf24"))
 	Footer   = lipgloss.NewStyle().Foreground(lipgloss.Color("#94a3b8"))
-	Key      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0f172a")).Background(lipgloss.Color("#7dd3fc")).Padding(0, 1)
+	Key      = lipgloss.NewStyle().Foreground(lipgloss.Color("#a5b4fc"))
+	Card     = lipgloss.NewStyle().Background(lipgloss.Color("#181e29")).Padding(0, 1)
 )

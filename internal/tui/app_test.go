@@ -13,7 +13,60 @@ import (
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/config"
 	"github.com/ch55secake/orbit/internal/server"
+	"github.com/charmbracelet/x/ansi"
 )
+
+func TestDashboardLayouts(t *testing.T) {
+	for _, width := range []int{80, 120} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			model, fake := testApp([]config.Server{testServer("mele"), testServer("mina")})
+			fake.set("http://mele.test", metricsResult{response: testMetrics(42)})
+			fake.set("http://mina.test", metricsResult{response: testMetrics(73)})
+			updateModel(t, model, model.Init()())
+			model.Update(tea.WindowSizeMsg{Width: width, Height: 32})
+			view := ansi.Strip(model.View().Content)
+			if strings.Contains(view, "test-config.yaml") || strings.Contains(view, "╭") {
+				t.Fatalf("default view should not contain config noise or nested borders:\n%s", view)
+			}
+			if width == 120 {
+				var split bool
+				for _, line := range strings.Split(view, "\n") {
+					if strings.Contains(line, "Server") && strings.Contains(line, "mele") {
+						split = true
+					}
+				}
+				if !split {
+					t.Fatalf("wide view should place selected details beside the fleet:\n%s", view)
+				}
+			}
+			t.Log("\n" + view)
+		})
+	}
+}
+
+func TestHelpCanBeToggledWithoutAffectingSelection(t *testing.T) {
+	model, _ := testApp([]config.Server{testServer("alpha"), testServer("beta")})
+	model.Update(keyPress("j"))
+	model.Update(keyPress("?"))
+	if !model.showHelp || !strings.Contains(model.View().Content, "test-config.yaml") {
+		t.Fatal("help should reveal the config path")
+	}
+	model.Update(keyPress("?"))
+	if model.showHelp || strings.Contains(model.View().Content, "test-config.yaml") || model.table.Cursor() != 1 {
+		t.Fatal("closing help should hide the config without moving selection")
+	}
+}
+
+func TestHelpKeyRemainsPasswordInputDuringAuthentication(t *testing.T) {
+	model, _ := testApp(nil)
+	request := &passwordRequest{server: testServer("remote"), response: make(chan passwordResponse, 1)}
+	model.Update(passwordRequestMsg{request: request})
+	model.Update(keyPress("?"))
+	if model.showHelp || string(model.passwordInput) != "?" {
+		t.Fatal("help shortcut intercepted password input")
+	}
+	model.cancelPasswordPrompt()
+}
 
 func TestResizeFitsTableAndPreservesSelection(t *testing.T) {
 	model, fake := testApp([]config.Server{testServer("alpha"), testServer("beta")})

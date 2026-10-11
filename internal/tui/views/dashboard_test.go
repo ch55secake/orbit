@@ -17,11 +17,12 @@ func TestRenderUsesClearHeaderAndKeyHintMenu(t *testing.T) {
 		Version:    "1.2.3",
 		ConfigPath: "~/.config/orbit/config.yaml",
 		Table:      "SERVER TABLE",
+		ShowHelp:   true,
 	})
 
 	for _, want := range []string{
 		"ORBIT",
-		"SERVER DASHBOARD",
+		"Servers",
 		"v1.2.3",
 		"CONFIG",
 		"~/.config/orbit/config.yaml",
@@ -76,7 +77,7 @@ func TestFleetSummaryCountsAndRefreshRetainsDetails(t *testing.T) {
 		{},
 	}
 	summary := fleetSummary(DashboardData{Statuses: statuses})
-	for _, want := range []string{"SERVERS  3", "1 online", "1 offline", "1 pending"} {
+	for _, want := range []string{"3 servers", "1 online", "1 offline", "1 pending"} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("summary missing %q: %q", want, summary)
 		}

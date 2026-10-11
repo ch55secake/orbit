@@ -32,6 +32,7 @@ type app struct {
 	loading          bool
 	message          string
 	width            int
+	showHelp         bool
 	program          *tea.Program
 	passwordRequest  *passwordRequest
 	passwordInput    []byte
@@ -83,8 +84,8 @@ func Run(configPath, version string) (runErr error) {
 func newApp(cfg config.Config, configPath, version string) *app {
 	rows := makeRows(cfg.Servers, nil)
 	styles := table.DefaultStyles()
-	styles.Header = styles.Header.Foreground(lipgloss.Color("#7dd3fc"))
-	styles.Selected = styles.Selected.Foreground(lipgloss.Color("#e2e8f0")).Background(lipgloss.Color("#1e3a5f"))
+	styles.Header = styles.Header.Bold(false).Foreground(lipgloss.Color("#8993a5"))
+	styles.Selected = styles.Selected.Bold(false).Foreground(lipgloss.Color("#e2e8f0")).Background(lipgloss.Color("#293047"))
 	model := &app{
 		version:    version,
 		configPath: configPath,
@@ -93,14 +94,7 @@ func newApp(cfg config.Config, configPath, version string) *app {
 		apiClient:  client.New(5 * time.Second),
 		statuses:   make([]server.Status, len(cfg.Servers)),
 		table: table.New(
-			table.WithColumns([]table.Column{
-				{Title: "SERVER", Width: 20},
-				{Title: "STATUS", Width: 12},
-				{Title: "CPU", Width: 10},
-				{Title: "MEMORY", Width: 12},
-				{Title: "DISK", Width: 12},
-				{Title: "UPTIME", Width: 12},
-			}),
+			table.WithColumns(tableColumns(90)),
 			table.WithRows(rows),
 			table.WithFocused(true),
 			table.WithHeight(min(max(len(cfg.Servers)+1, 2), 7)),
@@ -138,6 +132,9 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "?":
+			m.showHelp = !m.showHelp
+			return m, nil
 		case "r":
 			if m.loading {
 				return m, nil
@@ -148,10 +145,15 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.table.SetWidth(max(msg.Width-4, 1))
-		m.table.SetColumns(tableColumns(max(msg.Width-4, 1)))
-		// Reserve space for the header, full selected-server details, and controls.
-		m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(msg.Height-20, 2)))
+		m.table.SetWidth(views.TableWidth(msg.Width))
+		m.table.SetColumns(tableColumns(views.TableWidth(msg.Width)))
+		// Stacked layouts reserve room below the list; split layouts use that
+		// space beside it, so larger fleets can show more rows.
+		reserved := 20
+		if msg.Width >= 110 {
+			reserved = 9
+		}
+		m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(msg.Height-reserved, 2)))
 	case metricsMsg:
 		m.statuses = msg.statuses
 		m.loading = false
@@ -192,6 +194,7 @@ func (m *app) View() tea.View {
 		Loading:        m.loading,
 		Message:        m.message,
 		Width:          m.width,
+		ShowHelp:       m.showHelp,
 		PasswordPrompt: m.passwordRequest != nil,
 		PasswordServer: passwordServer,
 		PasswordInput:  strings.Repeat("•", utf8.RuneCount(m.passwordInput)),
@@ -204,12 +207,12 @@ func (m *app) View() tea.View {
 // The selected-server panel always retains the full metrics.
 func tableColumns(width int) []table.Column {
 	columns := []table.Column{
-		{Title: "SERVER"},
-		{Title: "STATUS", Width: 7},
+		{Title: "Server"},
+		{Title: "State", Width: 7},
 		{Title: "CPU", Width: 7},
-		{Title: "MEMORY", Width: 7},
-		{Title: "DISK", Width: 7},
-		{Title: "UPTIME", Width: 12},
+		{Title: "Memory", Width: 7},
+		{Title: "Disk", Width: 7},
+		{Title: "Uptime", Width: 12},
 	}
 	visible := 6
 	switch {
