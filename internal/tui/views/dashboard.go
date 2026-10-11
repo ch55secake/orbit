@@ -15,6 +15,7 @@ type DashboardData struct {
 	ConfigPath string
 	Table      string
 	Selected   *server.Status
+	Empty      bool
 	Loading    bool
 	Message    string
 }
@@ -31,6 +32,8 @@ func Render(data DashboardData) string {
 	switch {
 	case data.Loading:
 		detail = styles.Warn.Render("Loading metrics…")
+	case data.Empty:
+		detail = styles.Subtitle.Render("No servers configured")
 	case data.Selected == nil:
 		detail = styles.Subtitle.Render("Select a server to inspect its metrics")
 	case data.Selected.Error != nil:

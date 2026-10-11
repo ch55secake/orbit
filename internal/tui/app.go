@@ -20,7 +20,7 @@ type app struct {
 	version    string
 	configPath string
 	cfg        config.Config
-	apiClient  *client.Client
+	apiClient  metricsClient
 	table      table.Model
 	statuses   []server.Status
 	loading    bool
@@ -30,6 +30,10 @@ type app struct {
 
 type metricsMsg struct {
 	statuses []server.Status
+}
+
+type metricsClient interface {
+	Metrics(context.Context, string) (client.MetricsResponse, error)
 }
 
 func Run(configPath, version string) error {
@@ -107,6 +111,9 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.message = "One or more servers could not be reached"
 				break
 			}
+			if status.Metrics != nil && len(status.Metrics.Data.Errors) > 0 {
+				m.message = "Some metrics are unavailable"
+			}
 		}
 		m.table.SetRows(makeRows(m.cfg.Servers, m.statuses))
 	}
@@ -126,6 +133,7 @@ func (m *app) View() tea.View {
 		ConfigPath: m.configPath,
 		Table:      m.table.View(),
 		Selected:   selected,
+		Empty:      len(m.cfg.Servers) == 0,
 		Loading:    m.loading,
 		Message:    m.message,
 	}))
