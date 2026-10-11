@@ -188,6 +188,7 @@ func (m *app) View() tea.View {
 		Empty:          len(m.cfg.Servers) == 0,
 		Loading:        m.loading,
 		Message:        m.message,
+		Width:          m.width,
 		PasswordPrompt: m.passwordRequest != nil,
 		PasswordServer: passwordServer,
 		PasswordInput:  strings.Repeat("•", utf8.RuneCount(m.passwordInput)),
