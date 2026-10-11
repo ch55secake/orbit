@@ -11,7 +11,7 @@ import (
 )
 
 func TestSaturnMastheadAdaptsToScreen(t *testing.T) {
-	for _, art := range []string{saturn, wordmark} {
+	for _, art := range []string{saturn} {
 		for _, r := range art {
 			if r > 127 {
 				t.Fatal("masthead artwork must remain plain ASCII")
@@ -19,10 +19,13 @@ func TestSaturnMastheadAdaptsToScreen(t *testing.T) {
 		}
 	}
 	large := renderMasthead(DashboardData{Width: 76, Height: 40, Version: "dev"})
-	if !strings.Contains(large, "_____..--'") || lipgloss.Height(large) != 7 || lipgloss.Width(large) > 76 {
+	if !strings.Contains(large, ".odMMMMMM'") || lipgloss.Height(large) != 15 || lipgloss.Width(large) > 76 {
 		t.Fatalf("Saturn masthead missing or overflowing: %q", large)
 	}
-	for _, data := range []DashboardData{{Width: 76, Height: 24}, {Width: 20, Height: 40}} {
+	if strings.Contains(large, "| (_) |") {
+		t.Fatal("large ASCII Orbit wordmark should be removed")
+	}
+	for _, data := range []DashboardData{{Width: 76, Height: 24}, {Width: 76, Height: 32}, {Width: 20, Height: 40}} {
 		if header := renderMasthead(data); lipgloss.Height(header) != 1 || lipgloss.Width(header) > data.Width {
 			t.Fatalf("small screen should have a compact header: %q", header)
 		}
