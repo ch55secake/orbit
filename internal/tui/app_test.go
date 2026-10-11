@@ -3,15 +3,58 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/config"
 	"github.com/ch55secake/orbit/internal/server"
 )
+
+func TestResizeFitsTableAndPreservesSelection(t *testing.T) {
+	model, fake := testApp([]config.Server{testServer("alpha"), testServer("beta")})
+	fake.set("http://alpha.test", metricsResult{response: testMetrics(10)})
+	fake.set("http://beta.test", metricsResult{response: testMetrics(20)})
+	updateModel(t, model, model.Init()())
+	model.Update(keyPress("j"))
+	for _, width := range []int{120, 80, 60, 40, 24, 80} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			model.Update(tea.WindowSizeMsg{Width: width, Height: 40})
+			if got := lipgloss.Width(model.View().Content); got > width {
+				t.Fatalf("view width = %d, want <= %d:\n%s", got, width, model.View().Content)
+			}
+			if model.table.Cursor() != 1 || model.table.Rows()[1][2] != "20.0%" {
+				t.Fatal("resizing changed selection or lost metrics")
+			}
+			if model.table.Height() > 2 {
+				t.Fatal("table wastes rows for a two-server fleet")
+			}
+		})
+	}
+}
+
+func TestStandardTerminalKeepsControlsVisible(t *testing.T) {
+	targets := make([]config.Server, 12)
+	for i := range targets {
+		targets[i] = testServer(fmt.Sprintf("server-%d", i))
+	}
+	model, _ := testApp(targets)
+	model.statuses[0].Metrics = metricsPtr(testMetrics(42))
+	model.statuses[0].Server.SSH = &config.SSHConfig{Host: "prod", RemotePort: 8787}
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	if height := lipgloss.Height(model.View().Content); height > 24 {
+		t.Fatalf("dashboard height = %d, want <= 24:\n%s", height, model.View().Content)
+	}
+	request := &passwordRequest{server: targets[0], response: make(chan passwordResponse, 1)}
+	model.Update(passwordRequestMsg{request: request})
+	if height := lipgloss.Height(model.View().Content); height > 24 {
+		t.Fatalf("password dashboard height = %d, want <= 24", height)
+	}
+}
 
 func TestInitShowsLoadingAndLoadsMetrics(t *testing.T) {
 	model, fake := testApp([]config.Server{testServer("alpha")})
