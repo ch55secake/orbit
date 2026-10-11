@@ -147,8 +147,8 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.table.SetWidth(views.TableWidth(msg.Width))
-		m.table.SetColumns(tableColumns(views.TableWidth(msg.Width)))
+		m.table.SetWidth(views.FleetWidth(msg.Width, msg.Height))
+		m.table.SetColumns(tableColumns(views.FleetWidth(msg.Width, msg.Height)))
 	case metricsMsg:
 		m.statuses = msg.statuses
 		m.loading = false
@@ -173,6 +173,10 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *app) resizeTableHeight() {
 	if m.height <= 0 {
+		return
+	}
+	if views.FleetInMasthead(m.width, m.height) {
+		m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), 10))
 		return
 	}
 	// Stacked layouts reserve space below the list; split layouts use it beside
@@ -215,6 +219,7 @@ func (m *app) View() tea.View {
 		Table:          m.table.View(),
 		Statuses:       m.statuses,
 		Selected:       selected,
+		SelectedIndex:  m.table.Cursor(),
 		Empty:          len(m.cfg.Servers) == 0,
 		Loading:        m.loading,
 		Message:        m.message,

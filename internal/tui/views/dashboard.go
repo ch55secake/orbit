@@ -21,6 +21,7 @@ type DashboardData struct {
 	Table          string
 	Statuses       []server.Status
 	Selected       *server.Status
+	SelectedIndex  int
 	Empty          bool
 	Loading        bool
 	Message        string
@@ -39,15 +40,19 @@ func Render(data DashboardData) string {
 	}
 	header := renderMasthead(data)
 	summary := fleetSummary(data)
+	groupedFleet := FleetInMasthead(terminalWidth, data.Height)
+	if !groupedFleet {
+		header = lipgloss.JoinVertical(lipgloss.Left, header, summary)
+	}
 	footer := renderMenu(data)
 	help := ""
 	if data.ShowHelp && !data.PasswordPrompt {
-		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · r refresh · q quit · ? close help")
+		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · pgup/pgdown page · home/end first/last\nr refresh · q quit · ? close help")
 		if data.Width > 0 {
 			help = ansi.Wrap(help, data.Width, "")
 		}
 	}
-	bodyHeight := data.Height - 4 - lipgloss.Height(header) - lipgloss.Height(summary) - lipgloss.Height(footer)
+	bodyHeight := data.Height - 4 - lipgloss.Height(header) - lipgloss.Height(footer)
 	if help != "" {
 		bodyHeight -= lipgloss.Height(help) + 1
 	}
@@ -57,6 +62,7 @@ func Render(data DashboardData) string {
 	}
 
 	var detail string
+	sideTelemetry := ""
 	switch {
 	case data.Loading && (data.Selected == nil || data.Selected.Metrics == nil):
 		detail = styles.Warn.Render("Loading metrics…")
@@ -85,7 +91,16 @@ func Render(data DashboardData) string {
 		cardHeight := 3
 		if expanded(data) && detailWidth >= 56 && !data.ShowHelp {
 			telemetry = networkDetails(data.Selected, detailWidth)
-			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - lipgloss.Height(telemetry) - 2
+			if groupedFleet {
+				if !data.PasswordPrompt {
+					sideTelemetry = networkDetails(data.Selected, TableWidth(terminalWidth))
+				}
+				telemetry = ""
+			}
+			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - 1
+			if telemetry != "" {
+				available -= lipgloss.Height(telemetry) + 1
+			}
 			if terminalWidth < 110 {
 				available -= lipgloss.Height(data.Table) + 1
 			}
@@ -93,7 +108,7 @@ func Render(data DashboardData) string {
 			if data.Message != "" {
 				available -= 2
 			}
-			if available < 6 {
+			if available < 6 && telemetry != "" {
 				available += lipgloss.Height(telemetry) + 1
 				telemetry = ""
 			}
@@ -131,7 +146,14 @@ func Render(data DashboardData) string {
 	body := lipgloss.JoinVertical(lipgloss.Left, data.Table, "", detail)
 	if terminalWidth >= 110 {
 		list := data.Table
-		if expanded(data) && !data.ShowHelp && !data.PasswordPrompt {
+		if groupedFleet {
+			list = hostDetails(data.Selected, TableWidth(terminalWidth))
+			if sideTelemetry != "" && bodyHeight >= lipgloss.Height(list)+lipgloss.Height(sideTelemetry)+1 {
+				list = lipgloss.JoinVertical(lipgloss.Left,
+					lipgloss.NewStyle().Height(bodyHeight-lipgloss.Height(sideTelemetry)-1).Render(list), "", sideTelemetry,
+				)
+			}
+		} else if expanded(data) && !data.ShowHelp && !data.PasswordPrompt {
 			info := hostDetails(data.Selected, TableWidth(terminalWidth))
 			if info != "" && bodyHeight >= lipgloss.Height(list)+lipgloss.Height(info)+1 {
 				list = lipgloss.JoinVertical(lipgloss.Left,
@@ -148,7 +170,7 @@ func Render(data DashboardData) string {
 	if bodyHeight > lipgloss.Height(body) {
 		body = lipgloss.NewStyle().Height(bodyHeight).Render(body)
 	}
-	sections := []string{header, summary, "", body, "", footer}
+	sections := []string{header, "", body, "", footer}
 	if help != "" {
 		sections = append(sections, "", help)
 	}
@@ -245,6 +267,9 @@ func fleetSummary(data DashboardData) string {
 		parts = append(parts, styles.Warn.Render("Loading metrics…"))
 	} else if pending := len(data.Statuses) - online - offline; pending > 0 {
 		parts = append(parts, styles.Subtitle.Render(fmt.Sprintf("%d pending", pending)))
+	}
+	if data.Selected != nil && data.SelectedIndex >= 0 && data.SelectedIndex < len(data.Statuses) {
+		parts = append(parts, styles.Subtitle.Render(fmt.Sprintf("selected %d/%d", data.SelectedIndex+1, len(data.Statuses))))
 	}
 	summary := strings.Join(parts, "   ")
 	if data.Width > 0 {

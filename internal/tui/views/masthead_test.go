@@ -50,6 +50,26 @@ func TestHostDetailsDoNotExposeURLCredentials(t *testing.T) {
 	}
 }
 
+func TestWideFleetIsRenderedOnceBesideSaturn(t *testing.T) {
+	status := server.Status{Server: config.Server{Name: "selected-host"}, Metrics: &client.MetricsResponse{}}
+	view := Render(DashboardData{
+		Width: 120, Height: 40, Table: "FLEET-CONTENT", Selected: &status,
+		Statuses: []server.Status{status},
+	})
+	if strings.Count(view, "FLEET-CONTENT") != 1 {
+		t.Fatal("fleet should not be duplicated below the masthead")
+	}
+	if strings.Index(view, "FLEET-CONTENT") > strings.Index(view, "YMMMUP^") || strings.Index(view, "selected-host") < strings.Index(view, "YMMMUP^") {
+		t.Fatal("fleet should be beside Saturn and selected metrics should be below")
+	}
+	if lipgloss.Width(view) > 120 || lipgloss.Height(view) != 40 {
+		t.Fatalf("wide layout overflowed: %q", view)
+	}
+	if FleetWidth(120, 40) <= TableWidth(120) {
+		t.Fatal("masthead fleet should expose more columns than the compact sidebar")
+	}
+}
+
 func TestNetworkCountersAreNotRatesAndRespectErrors(t *testing.T) {
 	status := &server.Status{Metrics: &client.MetricsResponse{Data: client.MetricsData{
 		Network: client.Network{BytesReceived: 1024, BytesSent: 2048, PacketsReceived: 10, PacketsSent: 20},
