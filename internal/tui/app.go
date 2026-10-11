@@ -15,6 +15,7 @@ import (
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/config"
 	"github.com/ch55secake/orbit/internal/server"
+	"github.com/ch55secake/orbit/internal/sshclient"
 	"github.com/ch55secake/orbit/internal/tui/components"
 	"github.com/ch55secake/orbit/internal/tui/views"
 	"github.com/ch55secake/orbit/internal/tunnel"
@@ -43,6 +44,8 @@ type app struct {
 type metricsMsg struct {
 	statuses []server.Status
 }
+
+type sessionEndedMsg struct{ err error }
 
 type passwordRequest struct {
 	server   config.Server
@@ -118,6 +121,11 @@ func (m *app) Init() tea.Cmd {
 
 func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case sessionEndedMsg:
+		if msg.err != nil {
+			m.message = "SSH session: " + msg.err.Error()
+		}
+		return m, nil
 	case passwordRequestMsg:
 		if m.passwordRequest != nil {
 			m.passwordRequest.response <- passwordResponse{err: errors.New("SSH password prompt was interrupted")}
@@ -136,6 +144,18 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			m.showHelp = !m.showHelp
 			return m, nil
+		case "s":
+			cursor := m.table.Cursor()
+			if cursor < 0 || cursor >= len(m.cfg.Servers) {
+				return m, nil
+			}
+			process, err := sshclient.Command(m.ctx, m.cfg.Servers[cursor], true, "")
+			if err != nil {
+				m.message = err.Error()
+				return m, nil
+			}
+			m.message = ""
+			return m, tea.ExecProcess(process, func(err error) tea.Msg { return sessionEndedMsg{err: err} })
 		case "r":
 			if m.loading {
 				return m, nil

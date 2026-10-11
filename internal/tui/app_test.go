@@ -134,6 +134,26 @@ func TestHelpKeyRemainsPasswordInputDuringAuthentication(t *testing.T) {
 	model.cancelPasswordPrompt()
 }
 
+func TestSSHShortcutAndReturn(t *testing.T) {
+	model, _ := testApp([]config.Server{testServer("alpha")})
+	_, cmd := model.Update(keyPress("s"))
+	if cmd != nil || !strings.Contains(model.message, "no SSH settings") {
+		t.Fatal("direct server opened SSH")
+	}
+	model.cfg.Servers[0].SSH = &config.SSHConfig{Host: "prod", RemotePort: 8787}
+	_, cmd = model.Update(keyPress("s"))
+	if cmd == nil {
+		t.Fatal("SSH shortcut returned no process command")
+	}
+	model.Update(sessionEndedMsg{err: errors.New("connection failed")})
+	if !strings.Contains(model.message, "connection failed") {
+		t.Fatal("SSH exit error was hidden")
+	}
+	if model.table.Cursor() != 0 {
+		t.Fatal("SSH return changed selection")
+	}
+}
+
 func TestResizeFitsTableAndPreservesSelection(t *testing.T) {
 	model, fake := testApp([]config.Server{testServer("alpha"), testServer("beta")})
 	fake.set("http://alpha.test", metricsResult{response: testMetrics(10)})
