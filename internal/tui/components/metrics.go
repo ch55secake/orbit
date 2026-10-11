@@ -18,6 +18,11 @@ func Metric(label, value string) string {
 
 // Cards gives metrics room to breathe without nesting more bordered panels.
 func Cards(data client.MetricsData, width int) string {
+	return SizedCards(data, width, 3)
+}
+
+// SizedCards expands the same metrics vertically when the terminal has room.
+func SizedCards(data client.MetricsData, width, height int) string {
 	if width < 56 {
 		return Summary(data)
 	}
@@ -32,20 +37,39 @@ func Cards(data client.MetricsData, width int) string {
 		line := func(text string, style lipgloss.Style) string {
 			return style.Background(background).Padding(0, 1).Width(size).Render(text)
 		}
+		finish := func(lines ...string) string {
+			return lipgloss.NewStyle().Background(background).Width(size).Height(max(height, 3)).
+				AlignVertical(lipgloss.Center).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+		}
 		if !MetricAvailable(data, metric) {
-			return lipgloss.JoinVertical(lipgloss.Left,
+			if height >= 5 {
+				return finish(line(label, styles.Label), line("— unavailable", styles.Warn),
+					line("", styles.Value), line("", styles.Value), line("No valid sample", styles.Subtitle))
+			}
+			return finish(
 				line(label, styles.Label),
 				line("— unavailable", styles.Warn),
 				line("No valid sample", styles.Subtitle),
 			)
 		}
 		if metric == "uptime" {
-			return lipgloss.JoinVertical(lipgloss.Left,
+			if height >= 5 {
+				return finish(line(label, styles.Label), line(value, styles.Title),
+					line("", styles.Value), line("", styles.Value), line(caption, styles.Subtitle))
+			}
+			return finish(
 				line(label, styles.Label), line(value, styles.Title), line(caption, styles.Subtitle),
 			)
 		}
+		if height >= 5 {
+			return finish(
+				line(label, styles.Label), line(value, styles.Title), line("", styles.Value),
+				line(usageBar(usage, size-2, background), styles.Value),
+				line(ansi.Truncate(caption, size-2, "…"), styles.Subtitle),
+			)
+		}
 		gap := max(size-2-lipgloss.Width(label)-lipgloss.Width(value), 1)
-		return lipgloss.JoinVertical(lipgloss.Left,
+		return finish(
 			line(label+strings.Repeat(" ", gap)+value, styles.Title),
 			line(usageBar(usage, size-2, background), styles.Value),
 			line(ansi.Truncate(caption, size-2, "…"), styles.Subtitle),

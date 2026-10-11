@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -23,7 +24,7 @@ func TestDashboardLayouts(t *testing.T) {
 			fake.set("http://mele.test", metricsResult{response: testMetrics(42)})
 			fake.set("http://mina.test", metricsResult{response: testMetrics(73)})
 			updateModel(t, model, model.Init()())
-			model.Update(tea.WindowSizeMsg{Width: width, Height: 32})
+			model.Update(tea.WindowSizeMsg{Width: width, Height: 40})
 			view := ansi.Strip(model.View().Content)
 			if strings.Contains(view, "test-config.yaml") || strings.Contains(view, "╭") {
 				t.Fatalf("default view should not contain config noise or nested borders:\n%s", view)
@@ -41,6 +42,46 @@ func TestDashboardLayouts(t *testing.T) {
 			}
 			t.Log("\n" + view)
 		})
+	}
+}
+
+func TestTallDashboardUsesAvailableScreen(t *testing.T) {
+	for _, width := range []int{80, 120} {
+		for _, height := range []int{32, 40, 56} {
+			t.Run(fmt.Sprintf("%dx%d", width, height), func(t *testing.T) {
+				targets := make([]config.Server, 12)
+				for i := range targets {
+					targets[i] = testServer(fmt.Sprintf("server-%d", i))
+				}
+				model, _ := testApp(targets)
+				model.statuses[0].Metrics = metricsPtr(testMetrics(42))
+				model.statuses[0].Metrics.Timestamp = time.Date(2026, 10, 11, 12, 30, 0, 0, time.UTC)
+				model.Update(tea.WindowSizeMsg{Width: width, Height: height})
+				view := model.View().Content
+				if got := lipgloss.Height(view); got != height {
+					t.Fatalf("view height = %d, want %d:\n%s", got, height, ansi.Strip(view))
+				}
+				if lipgloss.Width(view) > width || !strings.Contains(view, "NETWORK") || !strings.Contains(view, "RX:") {
+					t.Fatalf("expanded dashboard is missing telemetry or overflows:\n%s", ansi.Strip(view))
+				}
+				model.Update(keyPress("?"))
+				if got := lipgloss.Height(model.View().Content); got != height {
+					t.Fatalf("help view height = %d, want %d", got, height)
+				}
+				model.Update(keyPress("?"))
+				model.statuses[0].Metrics.Data.Errors = []client.MetricError{{Metric: "disk", Message: "permission denied"}}
+				model.Update(metricsMsg{statuses: model.statuses})
+				if got := lipgloss.Height(model.View().Content); got != height {
+					t.Fatalf("warning view height = %d, want %d:\n%s", got, height, ansi.Strip(model.View().Content))
+				}
+				request := &passwordRequest{server: targets[0], response: make(chan passwordResponse, 1)}
+				model.Update(passwordRequestMsg{request: request})
+				if got := lipgloss.Height(model.View().Content); got != height {
+					t.Fatalf("password view height = %d, want %d", got, height)
+				}
+				model.cancelPasswordPrompt()
+			})
+		}
 	}
 }
 

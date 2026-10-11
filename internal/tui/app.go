@@ -32,6 +32,7 @@ type app struct {
 	loading          bool
 	message          string
 	width            int
+	height           int
 	showHelp         bool
 	program          *tea.Program
 	passwordRequest  *passwordRequest
@@ -145,15 +146,9 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 		m.table.SetWidth(views.TableWidth(msg.Width))
 		m.table.SetColumns(tableColumns(views.TableWidth(msg.Width)))
-		// Stacked layouts reserve room below the list; split layouts use that
-		// space beside it, so larger fleets can show more rows.
-		reserved := 20
-		if msg.Width >= 110 {
-			reserved = 9
-		}
-		m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(msg.Height-reserved, 2)))
 	case metricsMsg:
 		m.statuses = msg.statuses
 		m.loading = false
@@ -172,7 +167,34 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
+	m.resizeTableHeight()
 	return m, cmd
+}
+
+func (m *app) resizeTableHeight() {
+	if m.height <= 0 {
+		return
+	}
+	// Stacked layouts reserve space below the list; split layouts use it beside
+	// the list. Recalculate on selection/metrics changes as warnings need room.
+	reserved := 20
+	if m.width >= 110 {
+		reserved = 9
+	}
+	if m.width >= 64 && m.height >= 32 {
+		reserved = 29
+		if m.width >= 110 {
+			reserved = 15
+		} else {
+			if cursor := m.table.Cursor(); cursor >= 0 && cursor < len(m.statuses) && m.statuses[cursor].Metrics != nil {
+				reserved += len(m.statuses[cursor].Metrics.Data.Errors)
+			}
+			if m.message != "" {
+				reserved += 2
+			}
+		}
+	}
+	m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(m.height-reserved, 2)))
 }
 
 func (m *app) View() tea.View {
@@ -194,6 +216,7 @@ func (m *app) View() tea.View {
 		Loading:        m.loading,
 		Message:        m.message,
 		Width:          m.width,
+		Height:         m.height,
 		ShowHelp:       m.showHelp,
 		PasswordPrompt: m.passwordRequest != nil,
 		PasswordServer: passwordServer,
