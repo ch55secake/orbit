@@ -75,8 +75,8 @@ open until exit and reconnects on refresh after a disconnect. Tunnel addresses
 must use a loopback IP and each managed tunnel needs a unique local port. Use
 `orbit servers edit --name server-01 --direct` to remove the tunnel settings.
 
-Orbit starts OpenSSH in non-interactive forwarding-only mode (`ssh -N -L`); it
-does not invoke a shell or send a remote command. Configure key-based SSH
+Managed tunnels start OpenSSH in forwarding-only mode (`ssh -N -L`); they
+do not invoke a shell or send a remote command. Configure key-based SSH
 authentication through an identity file, an agent, or your OpenSSH config.
 If key/agent authentication is rejected, the TUI prompts for a concealed SSH
 password, and interactive `orbit status` does the same. Passwords are kept only
@@ -84,6 +84,34 @@ in memory for that connection attempt and are never written to the server
 configuration. Non-interactive `orbit status` requires key/agent authentication.
 
 An example configuration is in `examples/config.yaml`.
+
+Open a shell with `orbit ssh mele` or press `s` in the dashboard. OpenSSH handles
+host-key checks and password prompts using the existing host, user, port, and
+identity settings. Shell sessions are separate from metrics tunnels and do not
+inherit SSH forwarding rules. Exiting the shell returns to the dashboard.
+
+## Update a remote Stardust service
+
+```sh
+orbit stardust update mele --yes
+orbit stardust update mele --version v1.2.3 --yes
+```
+
+Updates require an existing Linux `stardust.service` or macOS system LaunchDaemon
+`com.ch55secake.stardust`, SSH access, and root or sudo privileges. OpenSSH and
+sudo handle passwords interactively; Orbit never stores them. `--yes` explicitly
+confirms binary replacement and service restart. The agent must run on the SSH
+host's loopback interface, not a different machine behind that host.
+
+The updater detects the remote OS/architecture, downloads a published release,
+verifies its SHA-256 checksum, atomically replaces the binary used by the existing
+service, and checks `/api/v1/health` on the configured remote port. Listener ports,
+service arguments, and service accounts are preserved. Restart or health failures
+restore the previous binary and attempt to restart it; rollback failures report
+the retained backup path. Missing services, custom executable names, and
+package-managed symlinks are rejected instead of overwritten. curl, tar, Bash,
+and sha256sum or shasum must be available remotely. No local/source-build uploads
+or automatic background updates are performed.
 
 ## Dashboard controls
 

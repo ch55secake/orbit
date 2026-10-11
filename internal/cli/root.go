@@ -37,6 +37,7 @@ func New(version string) *cobra.Command {
 		serversCommand(&configPath),
 		statusCommand(&configPath),
 		sshCommand(&configPath),
+		stardustCommand(&configPath),
 	)
 	return root
 }
