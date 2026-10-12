@@ -8,6 +8,19 @@ import (
 	"github.com/charmbracelet/x/vt"
 )
 
+var modifiedNavigationFormats = map[rune]string{
+	uv.KeyUp:     "\x1b[1;%dA",
+	uv.KeyDown:   "\x1b[1;%dB",
+	uv.KeyRight:  "\x1b[1;%dC",
+	uv.KeyLeft:   "\x1b[1;%dD",
+	uv.KeyHome:   "\x1b[1;%dH",
+	uv.KeyEnd:    "\x1b[1;%dF",
+	uv.KeyInsert: "\x1b[2;%d~",
+	uv.KeyDelete: "\x1b[3;%d~",
+	uv.KeyPgUp:   "\x1b[5;%d~",
+	uv.KeyPgDown: "\x1b[6;%d~",
+}
+
 // The pinned VT encoder drops Ctrl/Shift-modified navigation keys. Use the
 // xterm modifier convention for these keys; leave mode-aware plain keys and
 // text/control encoding to the emulator.
@@ -24,6 +37,10 @@ func modifiedNavigation(key uv.KeyPressEvent) string {
 	if key.Mod == 0 || key.Mod & ^supported != 0 {
 		return ""
 	}
+	format, ok := modifiedNavigationFormats[key.Code]
+	if !ok {
+		return ""
+	}
 	modifier := 1
 	if key.Mod&uv.ModShift != 0 {
 		modifier += 1
@@ -34,37 +51,5 @@ func modifiedNavigation(key uv.KeyPressEvent) string {
 	if key.Mod&uv.ModCtrl != 0 {
 		modifier += 4
 	}
-	var final byte
-	switch key.Code {
-	case uv.KeyUp:
-		final = 'A'
-	case uv.KeyDown:
-		final = 'B'
-	case uv.KeyRight:
-		final = 'C'
-	case uv.KeyLeft:
-		final = 'D'
-	case uv.KeyHome:
-		final = 'H'
-	case uv.KeyEnd:
-		final = 'F'
-	}
-	if final != 0 {
-		return fmt.Sprintf("\x1b[1;%d%c", modifier, final)
-	}
-	var number int
-	switch key.Code {
-	case uv.KeyInsert:
-		number = 2
-	case uv.KeyDelete:
-		number = 3
-	case uv.KeyPgUp:
-		number = 5
-	case uv.KeyPgDown:
-		number = 6
-	}
-	if number != 0 {
-		return fmt.Sprintf("\x1b[%d;%d~", number, modifier)
-	}
-	return ""
+	return fmt.Sprintf(format, modifier)
 }
