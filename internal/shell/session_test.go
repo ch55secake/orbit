@@ -75,3 +75,19 @@ func TestCloseTerminatesAndReapsProcess(t *testing.T) {
 	s.Close()
 	await(t, s, func() bool { exited, _ := s.Result(); return exited })
 }
+
+func TestModifiedNavigationReachesPTY(t *testing.T) {
+	s, err := Start(exec.Command("sh", "-c", "stty raw -echo; printf ready; dd bs=1 count=6 2>/dev/null | od -An -tx1"), 40, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	await(t, s, func() bool { return strings.Contains(s.Render(), "ready") })
+	if !s.SendKey(uv.KeyPressEvent{Code: uv.KeyRight, Mod: uv.ModCtrl}) {
+		t.Fatal("key was not queued")
+	}
+	await(t, s, func() bool { exited, _ := s.Result(); return exited })
+	if !strings.Contains(strings.Join(strings.Fields(s.Render()), " "), "1b 5b 31 3b 35 43") {
+		t.Fatalf("modified arrow did not reach PTY: %q", s.Render())
+	}
+}

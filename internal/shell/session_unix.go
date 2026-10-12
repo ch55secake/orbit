@@ -63,7 +63,7 @@ func Start(command *exec.Cmd, width, height int) (*Session, error) {
 				if in.paste != nil {
 					terminal.Paste(*in.paste)
 				} else {
-					terminal.SendKey(in.key)
+					sendKey(terminal, in.key)
 				}
 			case <-s.stop:
 				return
