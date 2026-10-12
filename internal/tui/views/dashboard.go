@@ -319,7 +319,8 @@ func fleetSummary(data DashboardData) string {
 
 func renderMenu(data DashboardData) string {
 	if data.ShellActive {
-		return fitMenuHints([]string{menuHint("ctrl+]", "close SSH")}, data.Width)
+		hints := []string{menuHint("ctrl+]", "close SSH"), menuHint("drag", "select text"), menuHint("ctrl+y", "copy"), menuHint("esc", "clear")}
+		return fitMenuHints(hints, data.Width)
 	}
 	if data.PasswordPrompt {
 		hints := []string{
