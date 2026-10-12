@@ -72,6 +72,9 @@ func Load(path string) (Config, error) {
 	if cfg.Version != currentVersion {
 		return Config{}, fmt.Errorf("unsupported config version %d", cfg.Version)
 	}
+	for index, server := range cfg.Servers {
+		cfg.Servers[index] = normalizeServer(server)
+	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
 	}
