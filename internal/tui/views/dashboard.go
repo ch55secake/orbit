@@ -43,6 +43,9 @@ type DashboardData struct {
 }
 
 func Render(data DashboardData) string {
+	if data.ShellActive && !TerminalBounds(data).Fits() {
+		return renderTerminalResizeWarning(data)
+	}
 	terminalWidth := data.Width
 	if data.Width > 0 {
 		data.Width = max(data.Width-4, 1)
@@ -190,7 +193,7 @@ func Render(data DashboardData) string {
 			}
 		}
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
-			lipgloss.NewStyle().Width(TableWidth(terminalWidth)).Render(list),
+			fleetPane(list, TableWidth(terminalWidth), bodyHeight, data.ShellActive),
 			"   ",
 			detail,
 		)
@@ -203,6 +206,14 @@ func Render(data DashboardData) string {
 		sections = append(sections, "", help)
 	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(lipgloss.JoinVertical(lipgloss.Left, sections...))
+}
+
+func fleetPane(content string, width, height int, shellActive bool) string {
+	style := lipgloss.NewStyle().Width(width)
+	if shellActive {
+		style = style.MaxHeight(max(height, 1))
+	}
+	return style.Render(content)
 }
 
 func hostDetails(status *server.Status, width int) string {

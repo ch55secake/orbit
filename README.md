@@ -97,6 +97,10 @@ output and exit status remain visible until you close the frame. Dashboard short
 are inactive while the shell has focus; sessions are not saved and there is no
 scrollback or mouse forwarding. The CLI shell remains a normal full-terminal session.
 
+If the window becomes too small for the shell frame, Orbit shows a compact resize
+warning and keeps the session at its last usable size. Shell input is paused until
+you enlarge the window; `Ctrl+]` remains available to disconnect.
+
 ## Update a remote Stardust service
 
 ```sh

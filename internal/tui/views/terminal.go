@@ -4,9 +4,12 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/ch55secake/orbit/internal/tui/styles"
 	"github.com/charmbracelet/x/ansi"
+	"strings"
 )
 
 type TerminalGeometry struct{ X, Y, Width, Height int }
+
+func (geometry TerminalGeometry) Fits() bool { return geometry.Width >= 10 && geometry.Height >= 2 }
 
 // TerminalBounds uses the same header, fleet, and footer measurements as Render.
 // The PTY is sized to the inner cells of the resource/detail pane's shell frame.
@@ -28,7 +31,29 @@ func TerminalBounds(data DashboardData) TerminalGeometry {
 		frameHeight -= lipgloss.Height(data.Table) + 1
 		y += lipgloss.Height(data.Table) + 1
 	}
-	return TerminalGeometry{X: x, Y: y, Width: max(frameWidth-4, 1), Height: max(frameHeight-3, 1)}
+	return TerminalGeometry{X: x, Y: y, Width: frameWidth - 4, Height: frameHeight - 3}
+}
+
+func renderTerminalResizeWarning(data DashboardData) string {
+	if data.Width <= 0 || data.Height <= 0 {
+		return ""
+	}
+	status := data.ShellStatus
+	if status == "" {
+		status = "session kept open"
+	}
+	lines := []string{
+		styles.Title.Render("SSH · " + data.ShellServer + " · " + status),
+		styles.Warn.Render("Resize terminal to show shell."),
+		styles.Subtitle.Render("Ctrl+] close SSH"),
+	}
+	if data.Height < len(lines) {
+		lines = lines[len(lines)-data.Height:]
+	}
+	for index, line := range lines {
+		lines[index] = ansi.Truncate(line, data.Width, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderTerminal(data DashboardData, width int) string {
