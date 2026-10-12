@@ -151,7 +151,9 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitShell(m.shellSession)
 	case tea.PasteMsg:
 		if m.shellSession != nil {
-			m.shellSession.Paste(msg.Content)
+			if views.TerminalBounds(m.dashboardData()).Fits() {
+				m.shellSession.Paste(msg.Content)
+			}
 			return m, nil
 		}
 	case updateEndedMsg:
@@ -185,7 +187,9 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resizeTableHeight()
 				return m, nil
 			}
-			m.shellSession.SendKey(uv.KeyPressEvent(msg))
+			if views.TerminalBounds(m.dashboardData()).Fits() {
+				m.shellSession.SendKey(uv.KeyPressEvent(msg))
+			}
 			return m, nil
 		}
 		switch msg.String() {
@@ -210,7 +214,7 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.showHelp = false
 			m.shellBounds = views.TerminalBounds(m.dashboardData())
-			if m.shellBounds.Width < 10 || m.shellBounds.Height < 2 {
+			if !m.shellBounds.Fits() {
 				m.message = "Terminal is too small for embedded SSH"
 				return m, nil
 			}
@@ -278,7 +282,7 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.resizeTableHeight()
 	if m.shellSession != nil {
 		bounds := views.TerminalBounds(m.dashboardData())
-		if bounds != m.shellBounds {
+		if bounds.Fits() && bounds != m.shellBounds {
 			m.shellBounds = bounds
 			_ = m.shellSession.Resize(bounds.Width, bounds.Height)
 		}
@@ -394,9 +398,10 @@ func (m *app) dashboardData() views.DashboardData {
 }
 
 func (m *app) View() tea.View {
-	view := tea.NewView(views.Render(m.dashboardData()))
+	data := m.dashboardData()
+	view := tea.NewView(views.Render(data))
 	view.AltScreen = true
-	if m.shellSession != nil && m.shellStatus == "" {
+	if m.shellSession != nil && m.shellStatus == "" && views.TerminalBounds(data).Fits() {
 		position, visible := m.shellSession.Cursor()
 		if visible {
 			view.Cursor = tea.NewCursor(m.shellBounds.X+position.X, m.shellBounds.Y+position.Y)
