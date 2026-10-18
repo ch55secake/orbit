@@ -40,6 +40,13 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 	heading := "FILESYSTEMS · fullest first"
 	if failed {
 		heading = "FILESYSTEMS · partial"
+		if unavailable := unavailableMountCount(data.Errors); unavailable > 0 {
+			mountLabel := "mounts"
+			if unavailable == 1 {
+				mountLabel = "mount"
+			}
+			heading = fmt.Sprintf("FILESYSTEMS · partial · %d %s unavailable", unavailable, mountLabel)
+		}
 	}
 	lines := []string{styles.Label.Render(ansi.Truncate(heading, width, "…"))}
 	const limit = 2
@@ -72,6 +79,16 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 		lines = append(lines, styles.Subtitle.Render(ansi.Truncate(fmt.Sprintf("+%d more %s", remaining, label), width, "…")))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func unavailableMountCount(failures []client.MetricError) int {
+	count := 0
+	for _, failure := range failures {
+		if strings.EqualFold(failure.Metric, "filesystems") && strings.HasPrefix(strings.ToLower(strings.TrimSpace(failure.Message)), "mount \"") {
+			count++
+		}
+	}
+	return count
 }
 
 func filesystemAvailable(filesystem client.Filesystem) bool {

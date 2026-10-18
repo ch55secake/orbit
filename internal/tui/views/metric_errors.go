@@ -14,9 +14,8 @@ import (
 // repeated errors (notably one per unreadable mount) to take over the dashboard.
 func metricErrorWarnings(failures []client.MetricError, width int) []string {
 	type group struct {
-		name        string
-		messages    []string
-		mountErrors int
+		name     string
+		messages []string
 	}
 	groups := make([]group, 0, len(failures))
 	indices := make(map[string]int, len(failures))
@@ -26,6 +25,12 @@ func metricErrorWarnings(failures []client.MetricError, width int) []string {
 			name = "metric"
 		}
 		key := strings.ToLower(name)
+		// The filesystem panel already marks partial data and includes the
+		// unreadable-mount count. Per-mount paths belong in `orbit status`, not
+		// in the live dashboard warning area.
+		if key == "filesystems" {
+			continue
+		}
 		index, exists := indices[key]
 		if !exists {
 			index = len(groups)
@@ -34,9 +39,6 @@ func metricErrorWarnings(failures []client.MetricError, width int) []string {
 		}
 		message := safeMetricText(failure.Message)
 		groups[index].messages = append(groups[index].messages, message)
-		if key == "filesystems" && strings.HasPrefix(strings.ToLower(message), "mount ") {
-			groups[index].mountErrors++
-		}
 	}
 
 	const maxWarnings = 3
@@ -46,8 +48,6 @@ func metricErrorWarnings(failures []client.MetricError, width int) []string {
 		label := strings.ToUpper(safeMetricText(item.name))
 		var message string
 		switch {
-		case strings.EqualFold(item.name, "filesystems") && item.mountErrors == len(item.messages):
-			message = fmt.Sprintf("%d mount(s) unavailable · run orbit status for details", item.mountErrors)
 		case len(item.messages) == 1:
 			message = item.messages[0]
 		default:

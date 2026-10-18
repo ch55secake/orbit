@@ -19,19 +19,19 @@ func TestMetricErrorsCollapsePerMountFailures(t *testing.T) {
 	}
 	failures = append(failures, client.MetricError{Metric: "cpu", Message: "sample unavailable"})
 	warnings := metricErrorWarnings(failures, 72)
-	if len(warnings) != 2 {
-		t.Fatalf("warning count=%d, want one per metric: %q", len(warnings), warnings)
+	if len(warnings) != 1 {
+		t.Fatalf("warning count=%d, want non-filesystem metric only: %q", len(warnings), warnings)
 	}
 	plain := ansi.Strip(strings.Join(warnings, "\n"))
-	for _, want := range []string{"FILESYSTEMS:", "24 mount(s) unavailable", "orbit status for details", "CPU: sample unavailable"} {
+	for _, want := range []string{"CPU: sample unavailable"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("missing %q in %q", want, plain)
 		}
 	}
-	if strings.Contains(plain, "/var/lib/docker") || strings.Contains(plain, "overlayfs") {
-		t.Fatalf("mount paths overwhelmed/exposed in summary: %q", plain)
+	if strings.Contains(plain, "/var/lib/docker") || strings.Contains(plain, "overlayfs") || strings.Contains(plain, "FILESYSTEMS") {
+		t.Fatalf("filesystem details duplicated in warnings: %q", plain)
 	}
-	if lipgloss.Height(strings.Join(warnings, "\n")) != 2 {
+	if lipgloss.Height(strings.Join(warnings, "\n")) != 1 {
 		t.Fatalf("warnings wrapped into extra rows: %q", plain)
 	}
 }
@@ -76,10 +76,10 @@ func TestDashboardRemainsCompactForManyFilesystemErrors(t *testing.T) {
 		if lipgloss.Width(view) > size[0] || lipgloss.Height(view) > size[1] {
 			t.Fatalf("dashboard overflow at %dx%d (%dx%d):\n%s", size[0], size[1], lipgloss.Width(view), lipgloss.Height(view), plain)
 		}
-		if strings.Count(plain, "mount(s) unavailable") != 1 || strings.Contains(plain, "/var/lib/docker") {
+		if strings.Contains(plain, "mount(s) unavailable") || strings.Contains(plain, "/var/lib/docker") {
 			t.Fatalf("per-mount errors still dominate %dx%d:\n%s", size[0], size[1], plain)
 		}
-		if !strings.Contains(plain, "FILESYSTEMS · partial") || !strings.Contains(plain, "CPU") {
+		if !strings.Contains(plain, "FILESYSTEMS · partial · 30 mounts unavailable") || !strings.Contains(plain, "CPU") {
 			t.Fatalf("other dashboard content lost:\n%s", plain)
 		}
 	}
