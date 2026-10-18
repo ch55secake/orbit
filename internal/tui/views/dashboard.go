@@ -100,6 +100,8 @@ func Render(data DashboardData) string {
 		}
 		lines = append(lines, styles.Subtitle.Render(metrics.Hostname+" · "+metrics.OS.Name+" "+metrics.OS.PlatformVersion), "")
 		filesystems := components.FilesystemSummary(metrics, detailWidth)
+		interfaces := components.InterfaceSummary(metrics, detailWidth)
+		cpuDetails := components.CPUDetails(metrics, detailWidth)
 		telemetry := ""
 		cardHeight := 3
 		if expanded(data) && detailWidth >= 56 && !data.ShowHelp {
@@ -133,8 +135,8 @@ func Render(data DashboardData) string {
 			}
 			cardHeight = available / 2
 		}
-		if filesystems != "" {
-			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - lipgloss.Height(filesystems) - 1 - len(metrics.Errors)
+		if filesystems != "" || interfaces != "" || cpuDetails != "" {
+			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - len(metrics.Errors)
 			if terminalWidth < 110 {
 				available -= lipgloss.Height(data.Table) + 1
 			}
@@ -150,11 +152,42 @@ func Render(data DashboardData) string {
 			if data.Notice != "" {
 				available -= lipgloss.Height(ansi.Wrap(data.Notice, detailWidth, "")) + 1
 			}
-			if available < 4 && telemetry != "" {
+			extraHeight := func() int {
+				height := 0
+				for _, content := range []string{cpuDetails, filesystems, interfaces} {
+					if content != "" {
+						height += lipgloss.Height(content) + 1
+					}
+				}
+				return height
+			}
+			minimum := lipgloss.Height(ansi.Wrap(components.Summary(metrics), detailWidth, ""))
+			if swap := components.SwapSummary(metrics); swap != "" {
+				minimum -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
+			}
+			if available-extraHeight() < minimum && telemetry != "" {
 				available += lipgloss.Height(telemetry) + 1
 				telemetry = ""
 			}
-			cardHeight = min(cardHeight, (available-1)/2)
+			if (cpuDetails != "" || filesystems != "") && interfaces != "" && available-extraHeight() < minimum {
+				interfaces = styles.Subtitle.Render(ansi.Truncate(fmt.Sprintf("Interfaces: %d (resize)", len(metrics.Network.Interfaces)), detailWidth, "…"))
+			}
+			if (cpuDetails != "" || filesystems != "") && interfaces != "" && available-extraHeight() < minimum {
+				interfaces = ""
+			}
+			if filesystems != "" && available-extraHeight() < minimum {
+				// Keep the fullest mount visible alongside newer CPU detail when
+				// there is no room for the full bounded filesystem list.
+				prefix, suffix := "FILESYSTEMS: ", ""
+				if len(metrics.Filesystems) > 1 {
+					suffix = fmt.Sprintf(" (+%d)", len(metrics.Filesystems)-1)
+				}
+				rows := strings.Split(components.FilesystemSummary(metrics, max(detailWidth-len(prefix)-len(suffix), 1)), "\n")
+				if len(rows) > 1 {
+					filesystems = styles.Label.Render(prefix) + rows[1] + styles.Subtitle.Render(suffix)
+				}
+			}
+			cardHeight = min(cardHeight, (available-extraHeight()-1)/2)
 		}
 		if cardHeight < 3 {
 			lines = append(lines, components.Summary(metrics))
@@ -164,8 +197,14 @@ func Render(data DashboardData) string {
 		if telemetry != "" {
 			lines = append(lines, "", telemetry)
 		}
+		if cpuDetails != "" {
+			lines = append(lines, "", cpuDetails)
+		}
 		if filesystems != "" {
 			lines = append(lines, "", filesystems)
+		}
+		if interfaces != "" {
+			lines = append(lines, "", interfaces)
 		}
 		for _, err := range metrics.Errors {
 			lines = append(lines, styles.Warn.Render(err.Metric+": "+err.Message))
