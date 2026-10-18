@@ -12,7 +12,7 @@ over HTTP, normally through SSH port forwarding.
 - `orbit servers add`: register a Stardust endpoint locally
 - `orbit servers edit`: update a registered Stardust endpoint
 - `orbit servers remove`: remove a registered Stardust endpoint
-- `orbit status`: fetch CPU, memory, disk, and uptime metrics
+- `orbit status`: fetch CPU, memory, disk, uptime, swap, and network counters
 - managed SSH local port forwarding for remote Stardust agents
 - `orbit ssh <server>`: open an SSH shell using the configured connection
 - No hosted service required; remote shells are opened only on explicit request
@@ -95,7 +95,16 @@ with the dashboard and supports terminal applications with an alternate screen.
 Press `Ctrl+]` to disconnect and restore metrics. When the shell exits, its final
 output and exit status remain visible until you close the frame. Dashboard shortcuts
 are inactive while the shell has focus; sessions are not saved and there is no
-scrollback or mouse forwarding. The CLI shell remains a normal full-terminal session.
+scrollback or mouse forwarding to remote applications. The CLI shell remains a
+normal full-terminal session.
+
+Drag with the left mouse button to select text inside the SSH pane. The frame,
+padding, and other dashboard panels are excluded. Press `Ctrl+Y` to copy the
+selection (requires terminal OSC 52 clipboard support), or Esc to clear it.
+`Ctrl+Shift+C` also works if your terminal forwards that shortcut to Orbit. The
+displayed shell snapshot freezes while selected; the remote process keeps running.
+Typing, pasting, or resizing clears the selection and restores live output. Native
+terminal selection overrides, such as Shift-drag, remain controlled by your terminal.
 
 If the window becomes too small for the shell frame, Orbit shows a compact resize
 warning and keeps the session at its last usable size. Shell input is paused until
@@ -168,6 +177,68 @@ seconds. Partial metric availability is represented by `data.errors`; an HTTP
 
 Versioned response fixtures and client compatibility tests are in
 `internal/client/testdata/stardust/v1`.
+
+Both `orbit status` and the dashboard mark failed or invalid metric samples as
+unavailable rather than healthy zeros, while retaining the other metrics in a
+partial response. A Stardust `host` collector error also makes uptime unavailable.
+The CLI includes each collector's reason; valid zero CPU usage and uptime remain
+valid readings when their collectors have not failed.
+
+Stardust implements the optional `data.swap` object with
+`total_bytes`, `used_bytes`, `free_bytes`, and `used_percent`. When supplied, it
+shows used/total capacity and percentage below the resource cards (next to memory
+in the compact summary). Zero capacity means "not configured"; a `swap` collector
+error or invalid sample is "unavailable". Omitted/null swap data without an error
+is hidden, preserving older agents' display. `orbit status` also displays swap
+alongside RAM, with the same availability rules. Agent-side support was added in
+[stardust#28](https://github.com/ch55secake/stardust/issues/28); use an agent version
+that supplies this field.
+
+The optional proposed `data.filesystems` array adds `mount_point`, optional
+`filesystem`/`device` identity, `used_bytes`, `total_bytes`, `available_bytes`, and
+`used_percent` without replacing the existing `disk` metric. The dashboard shows
+up to two mounts, prioritizing the fullest valid samples, with used/total capacity
+in wide layouts; additional mounts are counted. Paths are truncated to keep the
+list bounded. Absent/null/empty
+lists preserve older agents' display. Invalid samples show "unavailable"; a
+`filesystems` collector error marks supplied samples as partial without hiding
+healthy mounts or unrelated metrics. Available space may exclude reserved blocks,
+so used plus available need not equal total. Agent-side collection/filtering is
+still tracked in [stardust#27](https://github.com/ch55secake/stardust/issues/27);
+the filesystem fixtures model the proposed extension, not a released-agent payload.
+
+When CPU and other supplemental metrics compete for limited space, filesystem
+details compact to a single row showing the fullest mount and a count of omitted
+entries. Enlarge the window to restore the bounded mount list.
+
+Orbit also accepts Stardust's optional `data.network.interfaces` array. Each
+entry has `name`, `bytes_received`, `bytes_sent`, `packets_received`, and
+`packets_sent`. The selected-server detail view shows RX/TX byte totals for the
+first two supplied interfaces and a count of additional entries, keeping virtual
+interface lists from pushing other metrics off-screen. Missing, null, or empty
+lists leave older agents' display unchanged; a network collector error marks
+interface readings unavailable. Counters are cumulative, can reset, and may count
+the same traffic on multiple interfaces; they are not transfer rates and are not
+summed by Orbit. `orbit status` prints the aggregate RX/TX byte and packet totals
+and every supplied interface's byte/packet counters, without the dashboard's
+display limit. Network collector errors suppress both aggregate and interface
+readings. Agent-side support was added in
+[stardust#29](https://github.com/ch55secake/stardust/issues/29).
+
+The proposed CPU extension adds `data.cpu.per_core_usage_percent` (an array whose
+indices identify logical cores) and `data.cpu.load_average` with `one_minute`,
+`five_minutes`, and `fifteen_minutes`. The aggregate CPU reading is unchanged.
+The detail view shows the busiest four cores (two in narrow panes), preserving
+core indices and counting additional entries. Missing/null samples and invalid
+percentages are shown as `—`, not idle cores; omitted/empty optional fields add
+no display. Load averages are nonnegative scheduling-pressure values, not
+percentages, and can exceed 100. Orbit displays agent samples without deriving
+them from aggregate usage or resampling them. When space is tight, aggregate
+network telemetry and interface details may be compacted or hidden to retain
+CPU details and the core resource readings; enlarge the window for more detail.
+Producer-side sampling/platform support remains tracked in
+[stardust#26](https://github.com/ch55secake/stardust/issues/26) and is not yet
+implemented; the CPU fixtures model this proposed extension.
 
 ## Development
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -75,7 +76,7 @@ func SizedCards(data client.MetricsData, width, height int) string {
 			line(ansi.Truncate(caption, size-2, "…"), styles.Subtitle),
 		)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left,
+	cards := lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.JoinHorizontal(lipgloss.Top,
 			card("cpu", "CPU", Percent(data.CPU.UsagePercent), cpuCaption, data.CPU.UsagePercent, left), "  ",
 			card("memory", "Memory", Percent(data.Memory.UsedPercent), client.FormatBytes(data.Memory.UsedBytes)+" / "+client.FormatBytes(data.Memory.TotalBytes), data.Memory.UsedPercent, right),
@@ -86,6 +87,10 @@ func SizedCards(data client.MetricsData, width, height int) string {
 			card("uptime", "Uptime", client.FormatUptime(data.Uptime), "since boot", 0, right),
 		),
 	)
+	if swap := SwapSummary(data); swap != "" {
+		cards = lipgloss.JoinVertical(lipgloss.Left, cards, ansi.Wrap(swap, width, ""))
+	}
+	return cards
 }
 
 func Percent(value float64) string {
@@ -107,7 +112,25 @@ func Summary(data client.MetricsData) string {
 			lines[i] = Metric([]string{"CPU", "Memory", "Disk", "Uptime"}[i], "— unavailable")
 		}
 	}
+	if swap := SwapSummary(data); swap != "" {
+		lines = slices.Insert(lines, 2, swap)
+	}
 	return strings.Join(lines, "\n")
+}
+
+// SwapSummary leaves legacy/absent data out of the layout entirely. A failed
+// collector remains explicitly unavailable, even if it supplied no swap object.
+func SwapSummary(data client.MetricsData) string {
+	if data.Swap == nil && !metricFailed(data, "swap") {
+		return ""
+	}
+	if !MetricAvailable(data, "swap") {
+		return Metric("Swap", "— unavailable")
+	}
+	if data.Swap.TotalBytes == 0 {
+		return Metric("Swap", "not configured")
+	}
+	return Metric("Swap", fmt.Sprintf("%s / %s (%s)", client.FormatBytes(data.Swap.UsedBytes), client.FormatBytes(data.Swap.TotalBytes), Percent(data.Swap.UsedPercent)))
 }
 
 func validPercent(value float64) bool {
@@ -117,23 +140,11 @@ func validPercent(value float64) bool {
 // MetricAvailable prevents failed collectors and invalid samples from appearing
 // as healthy zero usage. Zero CPU usage and zero uptime are valid samples.
 func MetricAvailable(data client.MetricsData, metric string) bool {
-	for _, err := range data.Errors {
-		if strings.EqualFold(err.Metric, metric) {
-			return false
-		}
-	}
-	switch metric {
-	case "cpu":
-		return validPercent(data.CPU.UsagePercent)
-	case "memory":
-		return validPercent(data.Memory.UsedPercent) && data.Memory.TotalBytes > 0 && data.Memory.UsedBytes <= data.Memory.TotalBytes
-	case "disk":
-		return validPercent(data.Disk.UsedPercent) && data.Disk.TotalBytes > 0 && data.Disk.UsedBytes <= data.Disk.TotalBytes
-	case "uptime":
-		return true
-	default:
-		return false
-	}
+	return client.MetricAvailable(data, metric)
+}
+
+func metricFailed(data client.MetricsData, metric string) bool {
+	return client.MetricFailed(data, metric)
 }
 
 // UsageBar renders a ten-cell meter outside a card.
