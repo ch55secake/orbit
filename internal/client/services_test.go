@@ -15,6 +15,7 @@ import (
 )
 
 const serviceTestToken = "0123456789abcdef0123456789abcdef"
+const serviceLogTestToken = "abcdef0123456789abcdef0123456789"
 const serviceCapabilitiesJSON = `{"api_version":"v1","services":{"enabled":true,"supported":true,"authentication":"bearer"}}`
 
 func serviceTestClient(t *testing.T, handler http.HandlerFunc) *ServicesClient {
@@ -244,5 +245,119 @@ func TestServicesCursorRoundTripAndTokenRotation(t *testing.T) {
 	page, err = api.List(context.Background(), ServiceQuery{Limit: 1, Cursor: page.NextCursor})
 	if err != nil || len(page.Units) != 1 || page.Units[0].Name != "b.service" || page.NextCursor != "" {
 		t.Fatalf("next page: %+v %v", page, err)
+	}
+}
+
+func TestServiceLogsUseSeparateCredentialAndValidateStructuredPage(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		if request.URL.Path == "/api/v1/capabilities" {
+			if request.Header.Get("Authorization") != "" {
+				t.Error("credential sent to capability discovery")
+			}
+			writeServiceJSON(t, out, `{"api_version":"v1","services":{"enabled":true,"supported":true,"authentication":"bearer","logs":true}}`)
+			return
+		}
+		if request.Method != http.MethodGet || request.Header.Get("Authorization") != "Bearer "+serviceLogTestToken {
+			t.Error("service log request did not use its separate bearer token")
+		}
+		if request.URL.Path != "/api/v1/services/web-alias.service/logs" || request.URL.Query().Get("limit") != "1" || request.URL.Query().Get("after") != "opaque-after" || request.URL.Query().Get("since") != "2026-10-18T11:00:00Z" {
+			t.Errorf("log query was not encoded safely: %s?%s", request.URL.Path, request.URL.RawQuery)
+		}
+		writeServiceJSON(t, out, `{"api_version":"v1","data":{"unit":"web.service","entries":[{"timestamp":"2026-10-18T12:00:00Z","priority":6,"message":"first\nsecond café ✓","cursor":"opaque-page"}],"next_cursor":"opaque-page","latest_cursor":"opaque-page","has_more":true}}`)
+	}))
+	defer server.Close()
+	logTokenPath := filepath.Join(t.TempDir(), "log-token")
+	if err := os.WriteFile(logTokenPath, []byte(serviceLogTestToken), 0600); err != nil {
+		t.Fatal(err)
+	}
+	api, err := NewServices(server.URL, "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := api.Logs(context.Background(), logTokenPath, "web-alias.service", ServiceLogQuery{Limit: 1, After: "opaque-after", Since: time.Date(2026, 10, 18, 12, 0, 0, 0, time.FixedZone("offset", 3600))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 2 || page.Unit != "web.service" || len(page.Entries) != 1 || page.Entries[0].Message != "first\nsecond café ✓" || page.LatestCursor != "opaque-page" || !page.HasMore {
+		t.Fatalf("invalid service log page: %+v (requests=%d)", page, requests.Load())
+	}
+}
+
+func TestServiceLogsCapabilityAuthorizationAndMalformedResponses(t *testing.T) {
+	for _, test := range []struct {
+		name, capability, body, want string
+		status                       int
+		logCalls                     int32
+	}{
+		{"disabled", `{"api_version":"v1","services":{"enabled":true,"supported":true,"authentication":"bearer","logs":false}}`, `{"api_version":"v1","error":{"code":"logs_disabled"}}`, "disabled", http.StatusServiceUnavailable, 1},
+		{"unsupported journal", `{"api_version":"v1","services":{"enabled":true,"supported":true,"authentication":"bearer","logs":false}}`, `{"api_version":"v1","error":{"code":"logs_unsupported"}}`, "unsupported", http.StatusNotImplemented, 1},
+		{"unsupported host", `{"api_version":"v1","services":{"enabled":true,"supported":false,"authentication":"bearer","logs":false}}`, "", "unsupported", 0, 0},
+		{"inventory disabled", `{"api_version":"v1","services":{"enabled":false,"supported":true,"authentication":"bearer","logs":false}}`, "", "disabled", 0, 0},
+		{"permission", `{"api_version":"v1","services":{"enabled":true,"supported":true,"authentication":"bearer","logs":true}}`, `{"api_version":"v1","error":{"code":"logs_permission_denied"}}`, "permission to read", http.StatusServiceUnavailable, 1},
+		{"expired", `{"api_version":"v1","services":{"enabled":true,"supported":true,"authentication":"bearer","logs":true}}`, `{"api_version":"v1","error":{"code":"log_cursor_expired"}}`, "cursor expired", http.StatusGone, 1},
+		{"invalid page", `{"api_version":"v1","services":{"enabled":true,"supported":true,"authentication":"bearer","logs":true}}`, `{"api_version":"v1","data":{"unit":"web.service","entries":[{"timestamp":"2026-10-18T12:00:00Z","message":"bad","cursor":""}]}}`, "invalid service log entry", http.StatusOK, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var logCalls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, request *http.Request) {
+				if request.URL.Path == "/api/v1/capabilities" {
+					writeServiceJSON(t, out, test.capability)
+					return
+				}
+				logCalls.Add(1)
+				if test.status != http.StatusOK {
+					out.WriteHeader(test.status)
+				}
+				writeServiceJSON(t, out, test.body)
+			}))
+			defer server.Close()
+			logPath := filepath.Join(t.TempDir(), "log-token")
+			if err := os.WriteFile(logPath, []byte(serviceLogTestToken), 0600); err != nil {
+				t.Fatal(err)
+			}
+			api, err := NewServices(server.URL, "", time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = api.Logs(context.Background(), logPath, "web.service", ServiceLogQuery{})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("unexpected logs result: %v", err)
+			}
+			if logCalls.Load() != test.logCalls {
+				t.Fatalf("unexpected log endpoint requests: %d", logCalls.Load())
+			}
+		})
+	}
+}
+
+func TestServiceLogsMapOldAgentCapability404ToLogUnsupported(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			out.WriteHeader(http.StatusNotFound)
+			writeServiceJSON(t, out, `{"api_version":"v1","error":{"code":"not_found"}}`)
+			return
+		}
+		t.Error("unsupported old agent received a log request")
+	}))
+	defer server.Close()
+	api, err := NewServices(server.URL, "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = api.Logs(context.Background(), "", "worker.service", ServiceLogQuery{})
+	if err == nil || !strings.Contains(err.Error(), "Service logs are unsupported") {
+		t.Fatalf("old-agent capability was not identified as log-unsupported: %v", err)
+	}
+}
+
+func TestServiceLogTextPreservesMultilineUnicodeAndNeutralizesControls(t *testing.T) {
+	got := ServiceLogText("\x1b[31mfirst\x1b[0m\nsecond café 👩\u200d💻\x00\u202eend")
+	if got != "first\nsecond café 👩\u200d💻  end" {
+		t.Fatalf("log text sanitization changed readable content unexpectedly: %q", got)
+	}
+	if strings.ContainsAny(got, "\x1b\x00") {
+		t.Fatalf("terminal controls leaked: %q", got)
 	}
 }

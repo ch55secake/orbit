@@ -22,11 +22,12 @@ type Config struct {
 }
 
 type Server struct {
-	Name             string     `mapstructure:"name" yaml:"name"`
-	Address          string     `mapstructure:"address" yaml:"address"`
-	Description      string     `mapstructure:"description" yaml:"description,omitempty"`
-	ServiceTokenFile string     `mapstructure:"service_token_file" yaml:"service_token_file,omitempty"`
-	SSH              *SSHConfig `mapstructure:"ssh" yaml:"ssh,omitempty"`
+	Name                string     `mapstructure:"name" yaml:"name"`
+	Address             string     `mapstructure:"address" yaml:"address"`
+	Description         string     `mapstructure:"description" yaml:"description,omitempty"`
+	ServiceTokenFile    string     `mapstructure:"service_token_file" yaml:"service_token_file,omitempty"`
+	ServiceLogTokenFile string     `mapstructure:"service_log_token_file" yaml:"service_log_token_file,omitempty"`
+	SSH                 *SSHConfig `mapstructure:"ssh" yaml:"ssh,omitempty"`
 }
 
 type SSHConfig struct {
@@ -174,6 +175,9 @@ func (s Server) Validate() error {
 	if s.ServiceTokenFile != "" && (!filepath.IsAbs(s.ServiceTokenFile) || hasControl(s.ServiceTokenFile)) {
 		return errors.New("service_token_file must be an absolute path without control characters")
 	}
+	if s.ServiceLogTokenFile != "" && (!filepath.IsAbs(s.ServiceLogTokenFile) || hasControl(s.ServiceLogTokenFile)) {
+		return errors.New("service_log_token_file must be an absolute path without control characters")
+	}
 	return nil
 }
 
@@ -309,6 +313,7 @@ func normalizeServer(server Server) Server {
 	server.Address = strings.TrimSpace(server.Address)
 	server.Description = strings.TrimSpace(server.Description)
 	server.ServiceTokenFile = strings.TrimSpace(server.ServiceTokenFile)
+	server.ServiceLogTokenFile = strings.TrimSpace(server.ServiceLogTokenFile)
 	if server.SSH != nil {
 		ssh := *server.SSH
 		ssh.Host = strings.TrimSpace(ssh.Host)
