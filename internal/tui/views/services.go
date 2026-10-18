@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/tui/styles"
 	"github.com/charmbracelet/x/ansi"
@@ -29,16 +30,19 @@ func RenderServices(data DashboardData, browser ServiceBrowserData) string {
 	if height <= 0 {
 		height = 24
 	}
+	terminalWidth := width
+	horizontalPadding := min(2, max((terminalWidth-1)/2, 0))
+	width = max(terminalWidth-2*horizontalPadding, 1)
 	name := "Select a server"
 	if data.Selected != nil {
 		name = data.Selected.Server.Name
 	}
 	title := styles.Title.Render("SERVICES · " + client.ServiceText(name) + " · read-only")
 	header := title
-	fleetInHeader := width >= 64 && height >= 40 && FleetInMasthead(width, height)
-	if width >= 64 && height >= 40 {
+	fleetInHeader := terminalWidth >= 64 && height >= 40 && FleetInMasthead(terminalWidth, height)
+	if terminalWidth >= 64 && height >= 40 {
 		mastheadData := data
-		mastheadData.Width = max(width-4, 1)
+		mastheadData.Width = width
 		header = renderMasthead(mastheadData) + "\n" + title
 	}
 	footer := serviceFooter(width, browser.Editing)
@@ -47,11 +51,11 @@ func RenderServices(data DashboardData, browser ServiceBrowserData) string {
 	available := max(height-len(headerLines)-2, 1)
 	fleetWidth := min(34, width/3)
 	contentWidth := width
-	if width >= 100 && !fleetInHeader {
+	if terminalWidth >= 100 && !fleetInHeader {
 		contentWidth = width - fleetWidth - 3
 	}
 	lines := serviceLines(browser, contentWidth, available)
-	if width >= 100 && !fleetInHeader {
+	if terminalWidth >= 100 && !fleetInHeader {
 		fleet := []string{styles.Label.Render("FLEET · Tab changes server")}
 		for index, status := range data.Statuses {
 			prefix := "  "
@@ -89,7 +93,7 @@ func RenderServices(data DashboardData, browser ServiceBrowserData) string {
 		sections = sections[:max(height-1, 0)]
 	}
 	sections = append(sections, styles.Subtitle.Render(footer))
-	return serviceFit(sections, width, height)
+	return lipgloss.NewStyle().Padding(0, horizontalPadding).Render(serviceFit(sections, width, height))
 }
 
 func serviceLines(browser ServiceBrowserData, width, height int) []string {

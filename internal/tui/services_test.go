@@ -209,3 +209,17 @@ func TestServiceBrowserLayoutsRetainContextAndBoundRemoteText(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceBrowserKeepsConsistentLeftInset(t *testing.T) {
+	model, _ := testApp([]config.Server{testServer("alpha")})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model.services = &serviceBrowser{page: client.ServicePage{Units: serviceUnits()}}
+	view := ansi.Strip(model.View().Content)
+	lines := strings.Split(view, "\n")
+	if len(lines) < 3 || !strings.HasPrefix(lines[0], "  SERVICES") || !strings.HasPrefix(lines[2], "  Fleet") {
+		t.Fatalf("services view lost the shared left inset:\n%s", view)
+	}
+	if width := lipgloss.Width(view); width > 80 {
+		t.Fatalf("services view width = %d, terminal = 80", width)
+	}
+}
