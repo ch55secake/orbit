@@ -178,6 +178,18 @@ is hidden, preserving older agents' display. Agent-side support is tracked in
 [stardust#28](https://github.com/ch55secake/stardust/issues/28) and is not yet
 implemented; the new swap fixtures model the proposed extension.
 
+Orbit also accepts the proposed optional `data.network.interfaces` array. Each
+entry has `name`, `bytes_received`, `bytes_sent`, `packets_received`, and
+`packets_sent`. The selected-server detail view shows RX/TX byte totals for the
+first two supplied interfaces and a count of additional entries, keeping virtual
+interface lists from pushing other metrics off-screen. Missing, null, or empty
+lists leave older agents' display unchanged; a network collector error marks
+interface readings unavailable. Counters are cumulative, can reset, and may count
+the same traffic on multiple interfaces; they are not transfer rates and are not
+summed by Orbit. Agent-side support remains tracked in
+[stardust#29](https://github.com/ch55secake/stardust/issues/29); the interface
+fixture models the proposed extension, not a released-agent payload.
+
 ## Development
 
 ```sh
