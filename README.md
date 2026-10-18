@@ -190,6 +190,21 @@ summed by Orbit. Agent-side support remains tracked in
 [stardust#29](https://github.com/ch55secake/stardust/issues/29); the interface
 fixture models the proposed extension, not a released-agent payload.
 
+The proposed CPU extension adds `data.cpu.per_core_usage_percent` (an array whose
+indices identify logical cores) and `data.cpu.load_average` with `one_minute`,
+`five_minutes`, and `fifteen_minutes`. The aggregate CPU reading is unchanged.
+The detail view shows the busiest four cores (two in narrow panes), preserving
+core indices and counting additional entries. Missing/null samples and invalid
+percentages are shown as `—`, not idle cores; omitted/empty optional fields add
+no display. Load averages are nonnegative scheduling-pressure values, not
+percentages, and can exceed 100. Orbit displays agent samples without deriving
+them from aggregate usage or resampling them. When space is tight, aggregate
+network telemetry and interface details may be compacted or hidden to retain
+CPU details and the core resource readings; enlarge the window for more detail.
+Producer-side sampling/platform support remains tracked in
+[stardust#26](https://github.com/ch55secake/stardust/issues/26) and is not yet
+implemented; the CPU fixtures model this proposed extension.
+
 ## Development
 
 ```sh

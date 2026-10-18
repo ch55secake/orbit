@@ -52,8 +52,17 @@ type OSInfo struct {
 }
 
 type CPU struct {
-	UsagePercent float64 `json:"usage_percent"`
-	LogicalCores int     `json:"logical_cores"`
+	UsagePercent        float64      `json:"usage_percent"`
+	LogicalCores        int          `json:"logical_cores"`
+	PerCoreUsagePercent []*float64   `json:"per_core_usage_percent,omitempty"`
+	LoadAverage         *LoadAverage `json:"load_average,omitempty"`
+}
+
+// Pointer samples distinguish unsupported/null values from valid zero load.
+type LoadAverage struct {
+	OneMinute      *float64 `json:"one_minute"`
+	FiveMinutes    *float64 `json:"five_minutes"`
+	FifteenMinutes *float64 `json:"fifteen_minutes"`
 }
 
 type Memory struct {
