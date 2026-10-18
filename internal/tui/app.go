@@ -350,6 +350,13 @@ func (m *app) resizeTableHeight() {
 		}
 		reserved += 1 + lipgloss.Height(lipgloss.NewStyle().Width(width).Render(m.notice))
 	}
+	if m.width < 110 {
+		if cursor := m.table.Cursor(); cursor >= 0 && cursor < len(m.statuses) && m.statuses[cursor].Metrics != nil {
+			if swap := components.SwapSummary(m.statuses[cursor].Metrics.Data); swap != "" {
+				reserved += lipgloss.Height(lipgloss.NewStyle().Width(max(m.width-4, 1)).Render(swap))
+			}
+		}
+	}
 	m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(m.height-reserved, 2)))
 }
 

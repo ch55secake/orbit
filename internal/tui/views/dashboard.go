@@ -117,6 +117,9 @@ func Render(data DashboardData) string {
 				available -= lipgloss.Height(data.Table) + 1
 			}
 			available -= len(metrics.Errors)
+			if swap := components.SwapSummary(metrics); swap != "" {
+				available -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
+			}
 			if data.Message != "" {
 				available -= 2
 			}
