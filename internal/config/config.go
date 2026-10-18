@@ -22,12 +22,13 @@ type Config struct {
 }
 
 type Server struct {
-	Name                string     `mapstructure:"name" yaml:"name"`
-	Address             string     `mapstructure:"address" yaml:"address"`
-	Description         string     `mapstructure:"description" yaml:"description,omitempty"`
-	ServiceTokenFile    string     `mapstructure:"service_token_file" yaml:"service_token_file,omitempty"`
-	ServiceLogTokenFile string     `mapstructure:"service_log_token_file" yaml:"service_log_token_file,omitempty"`
-	SSH                 *SSHConfig `mapstructure:"ssh" yaml:"ssh,omitempty"`
+	Name                    string     `mapstructure:"name" yaml:"name"`
+	Address                 string     `mapstructure:"address" yaml:"address"`
+	Description             string     `mapstructure:"description" yaml:"description,omitempty"`
+	ServiceTokenFile        string     `mapstructure:"service_token_file" yaml:"service_token_file,omitempty"`
+	ServiceLogTokenFile     string     `mapstructure:"service_log_token_file" yaml:"service_log_token_file,omitempty"`
+	ServiceRestartTokenFile string     `mapstructure:"service_restart_token_file" yaml:"service_restart_token_file,omitempty"`
+	SSH                     *SSHConfig `mapstructure:"ssh" yaml:"ssh,omitempty"`
 }
 
 type SSHConfig struct {
@@ -178,6 +179,9 @@ func (s Server) Validate() error {
 	if s.ServiceLogTokenFile != "" && (!filepath.IsAbs(s.ServiceLogTokenFile) || hasControl(s.ServiceLogTokenFile)) {
 		return errors.New("service_log_token_file must be an absolute path without control characters")
 	}
+	if s.ServiceRestartTokenFile != "" && (!filepath.IsAbs(s.ServiceRestartTokenFile) || hasControl(s.ServiceRestartTokenFile)) {
+		return errors.New("service_restart_token_file must be an absolute path without control characters")
+	}
 	return nil
 }
 
@@ -314,6 +318,7 @@ func normalizeServer(server Server) Server {
 	server.Description = strings.TrimSpace(server.Description)
 	server.ServiceTokenFile = strings.TrimSpace(server.ServiceTokenFile)
 	server.ServiceLogTokenFile = strings.TrimSpace(server.ServiceLogTokenFile)
+	server.ServiceRestartTokenFile = strings.TrimSpace(server.ServiceRestartTokenFile)
 	if server.SSH != nil {
 		ssh := *server.SSH
 		ssh.Host = strings.TrimSpace(ssh.Host)

@@ -55,6 +55,10 @@ type app struct {
 	serviceGeneration    uint64
 	serviceLogLoader     serviceLogLoader
 	serviceLogGeneration uint64
+	serviceRestart       *serviceRestartState
+	serviceRestartStart  serviceRestartStarter
+	serviceRestartStatus serviceRestartReader
+	serviceRestartSeq    uint64
 }
 
 type metricsMsg struct {
@@ -147,6 +151,10 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case servicesMsg:
 		m.receiveServices(msg)
 		return m, nil
+	case serviceRestartStartedMsg:
+		return m, m.receiveServiceRestartStarted(msg)
+	case serviceRestartPollMsg:
+		return m, m.receiveServiceRestartPoll(msg)
 	case serviceLogsMsg:
 		return m, m.receiveServiceLogs(msg)
 	case serviceLogsPollMsg:
@@ -202,6 +210,9 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.updateTarget != nil {
 			return m, m.updateConfirmation(msg)
+		}
+		if m.serviceRestart != nil && !m.serviceRestart.dismissed {
+			return m, m.serviceRestartKeys(msg)
 		}
 		if m.shellSession != nil {
 			if m.shellSelection != nil {
@@ -471,6 +482,14 @@ func (m *app) View() tea.View {
 	data := m.dashboardData()
 	if m.services != nil && m.passwordRequest == nil {
 		browser := m.services
+		if m.serviceRestart != nil && !m.serviceRestart.dismissed {
+			state := m.serviceRestart
+			view := tea.NewView(views.RenderServiceRestart(data, views.ServiceRestartData{
+				Server: state.server.Name, Unit: state.unit, Phase: state.phase, Operation: state.operation, Error: state.err,
+			}))
+			view.AltScreen = true
+			return view
+		}
 		if browser.logs != nil {
 			view := tea.NewView(views.RenderServiceLogs(data, views.ServiceLogsData{
 				Server: browser.logs.server, Unit: browser.logs.displayUnit(), Entries: browser.logs.entries,
@@ -481,7 +500,7 @@ func (m *app) View() tea.View {
 			view.AltScreen = true
 			return view
 		}
-		view := tea.NewView(views.RenderServices(data, views.ServiceBrowserData{Page: browser.page, Cursor: browser.cursor, Filter: browser.query.Filter, Input: browser.input, Editing: browser.editing, Loading: browser.loading, Error: browser.err, Detail: browser.detail, PageNumber: len(browser.previous) + 1}))
+		view := tea.NewView(views.RenderServices(data, views.ServiceBrowserData{Page: browser.page, Cursor: browser.cursor, Filter: browser.query.Filter, Input: browser.input, Editing: browser.editing, Loading: browser.loading, Error: browser.err, Detail: browser.detail, PageNumber: len(browser.previous) + 1, Notice: browser.restartNotice}))
 		view.AltScreen = true
 		return view
 	}
