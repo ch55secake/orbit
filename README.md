@@ -178,6 +178,23 @@ is hidden, preserving older agents' display. Agent-side support is tracked in
 [stardust#28](https://github.com/ch55secake/stardust/issues/28) and is not yet
 implemented; the new swap fixtures model the proposed extension.
 
+The optional proposed `data.filesystems` array adds `mount_point`, optional
+`filesystem`/`device` identity, `used_bytes`, `total_bytes`, `available_bytes`, and
+`used_percent` without replacing the existing `disk` metric. The dashboard shows
+up to two mounts, prioritizing the fullest valid samples, with used/total capacity
+in wide layouts; additional mounts are counted. Paths are truncated to keep the
+list bounded. Absent/null/empty
+lists preserve older agents' display. Invalid samples show "unavailable"; a
+`filesystems` collector error marks supplied samples as partial without hiding
+healthy mounts or unrelated metrics. Available space may exclude reserved blocks,
+so used plus available need not equal total. Agent-side collection/filtering is
+still tracked in [stardust#27](https://github.com/ch55secake/stardust/issues/27);
+the filesystem fixtures model the proposed extension, not a released-agent payload.
+
+When CPU and other supplemental metrics compete for limited space, filesystem
+details compact to a single row showing the fullest mount and a count of omitted
+entries. Enlarge the window to restore the bounded mount list.
+
 Orbit also accepts the proposed optional `data.network.interfaces` array. Each
 entry has `name`, `bytes_received`, `bytes_sent`, `packets_received`, and
 `packets_sent`. The selected-server detail view shows RX/TX byte totals for the

@@ -355,6 +355,9 @@ func (m *app) resizeTableHeight() {
 			if swap := components.SwapSummary(m.statuses[cursor].Metrics.Data); swap != "" {
 				reserved += lipgloss.Height(lipgloss.NewStyle().Width(max(m.width-4, 1)).Render(swap))
 			}
+			if filesystems := components.FilesystemSummary(m.statuses[cursor].Metrics.Data, max(m.width-4, 1)); filesystems != "" {
+				reserved += lipgloss.Height(filesystems) + 1
+			}
 			if interfaces := components.InterfaceSummary(m.statuses[cursor].Metrics.Data, max(m.width-4, 1)); interfaces != "" {
 				reserved += lipgloss.Height(interfaces) + 1
 			}
