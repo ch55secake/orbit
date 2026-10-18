@@ -178,6 +178,15 @@ seconds. Partial metric availability is represented by `data.errors`; an HTTP
 Versioned response fixtures and client compatibility tests are in
 `internal/client/testdata/stardust/v1`.
 
+The dashboard also accepts the proposed optional `data.swap` object with
+`total_bytes`, `used_bytes`, `free_bytes`, and `used_percent`. When supplied, it
+shows used/total capacity and percentage below the resource cards (next to memory
+in the compact summary). Zero capacity means "not configured"; a `swap` collector
+error or invalid sample is "unavailable". Omitted/null swap data without an error
+is hidden, preserving older agents' display. Agent-side support is tracked in
+[stardust#28](https://github.com/ch55secake/stardust/issues/28) and is not yet
+implemented; the new swap fixtures model the proposed extension.
+
 ## Development
 
 ```sh
