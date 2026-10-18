@@ -79,6 +79,16 @@ type Disk struct {
 }
 
 type Network struct {
+	BytesReceived   uint64             `json:"bytes_received"`
+	BytesSent       uint64             `json:"bytes_sent"`
+	PacketsReceived uint64             `json:"packets_received"`
+	PacketsSent     uint64             `json:"packets_sent"`
+	Interfaces      []NetworkInterface `json:"interfaces,omitempty"`
+}
+
+// NetworkInterface counters are cumulative, like the aggregate Network values.
+type NetworkInterface struct {
+	Name            string `json:"name"`
 	BytesReceived   uint64 `json:"bytes_received"`
 	BytesSent       uint64 `json:"bytes_sent"`
 	PacketsReceived uint64 `json:"packets_received"`
