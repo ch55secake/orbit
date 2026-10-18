@@ -102,7 +102,11 @@ func (writer *metricFailWriter) Write(data []byte) (int, error) {
 func TestStatusPropagatesMetricWriterErrors(t *testing.T) {
 	data := client.MetricsData{Errors: []client.MetricError{{Metric: "cpu", Message: "unavailable"}}}
 	want := errors.New("write failed")
-	for failAt := 1; failAt <= 6; failAt++ {
+	count := &metricFailWriter{}
+	if err := printMetrics(count, data); err != nil {
+		t.Fatal(err)
+	}
+	for failAt := 1; failAt <= count.calls; failAt++ {
 		if err := printMetrics(&metricFailWriter{failAt: failAt, err: want}, data); !errors.Is(err, want) {
 			t.Fatalf("write %d: got %v", failAt, err)
 		}

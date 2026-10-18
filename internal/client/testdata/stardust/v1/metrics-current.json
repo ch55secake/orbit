@@ -1,0 +1,22 @@
+{
+  "api_version": "v1",
+  "timestamp": "2026-01-01T12:00:00Z",
+  "data": {
+    "hostname": "server-01",
+    "os": {"name": "linux", "platform": "ubuntu", "platform_version": "24.04", "kernel_arch": "x86_64"},
+    "cpu": {"usage_percent": 12.5, "logical_cores": 4},
+    "memory": {"used_bytes": 1000, "total_bytes": 2000, "used_percent": 50},
+    "swap": {"total_bytes": 1000, "used_bytes": 300, "free_bytes": 700, "used_percent": 30},
+    "disk": {"path": "/", "used_bytes": 1000, "total_bytes": 2000, "used_percent": 50},
+    "uptime_seconds": 86400,
+    "network": {
+      "bytes_received": 1000,
+      "bytes_sent": 500,
+      "packets_received": 20,
+      "packets_sent": 10,
+      "interfaces": [
+        {"name": "eth0", "bytes_received": 1000, "bytes_sent": 500, "packets_received": 20, "packets_sent": 10}
+      ]
+    }
+  }
+}

@@ -17,12 +17,18 @@ Consumers must not interpret the zero uptime as a healthy reading. The payload
 matches the collector contract at Stardust commit
 `254c08e7ec29d242982ae1c384856b1d58675428`.
 
-## Proposed swap extension fixtures
+`metrics-current.json` mirrors the documented metrics example from Stardust
+commit `254c08e7ec29d242982ae1c384856b1d58675428`, including implemented swap and
+per-interface network counters. It is a documented contract example, not a
+captured response from a running server.
+
+## Swap fixtures
 
 `metrics-complete.json` and `metrics-partial.json` retain the legacy payloads.
-The swap fixtures model the additive `data.swap` object proposed in
-[stardust#28](https://github.com/ch55secake/stardust/issues/28), not output captured
-from a released agent. The producer issue is still open.
+The swap fixtures model the additive `data.swap` object implemented in
+[stardust#28](https://github.com/ch55secake/stardust/issues/28). They cover populated,
+zero-capacity, and unavailable samples and match the implemented collector's field
+names and units. These fixtures are constructed examples, not captured responses.
 
 The object uses `total_bytes`, `used_bytes`, `free_bytes`, and `used_percent`.
 An omitted/null object is absent; an all-zero object means no swap is configured.
@@ -42,11 +48,11 @@ bytes may exclude reserved blocks. The partial fixture retains a healthy mount
 and an unavailable zero-capacity sample, with a `filesystems` collector error.
 Missing/null/empty lists remain compatible with older agents.
 
-## Proposed network interface extension
+## Network interface fixtures
 
 `metrics-interfaces.json` models the additive `data.network.interfaces` array
-proposed in [stardust#29](https://github.com/ch55secake/stardust/issues/29), whose
-producer implementation is still pending. It retains the legacy aggregate
+implemented in [stardust#29](https://github.com/ch55secake/stardust/issues/29).
+It retains the legacy aggregate
 counters and adds two interface records with a `name` and the same four
 byte/packet counter fields. All counters are cumulative and may reset; traffic
 can be observed on multiple interfaces and the list must not be summed to derive
