@@ -140,33 +140,11 @@ func validPercent(value float64) bool {
 // MetricAvailable prevents failed collectors and invalid samples from appearing
 // as healthy zero usage. Zero CPU usage and zero uptime are valid samples.
 func MetricAvailable(data client.MetricsData, metric string) bool {
-	if metricFailed(data, metric) {
-		return false
-	}
-	switch metric {
-	case "cpu":
-		return validPercent(data.CPU.UsagePercent)
-	case "memory":
-		return validPercent(data.Memory.UsedPercent) && data.Memory.TotalBytes > 0 && data.Memory.UsedBytes <= data.Memory.TotalBytes
-	case "swap":
-		swap := data.Swap
-		return swap != nil && validPercent(swap.UsedPercent) && swap.UsedBytes <= swap.TotalBytes && swap.FreeBytes <= swap.TotalBytes && (swap.TotalBytes > 0 || swap.UsedPercent == 0)
-	case "disk":
-		return validPercent(data.Disk.UsedPercent) && data.Disk.TotalBytes > 0 && data.Disk.UsedBytes <= data.Disk.TotalBytes
-	case "uptime":
-		return true
-	default:
-		return false
-	}
+	return client.MetricAvailable(data, metric)
 }
 
 func metricFailed(data client.MetricsData, metric string) bool {
-	for _, err := range data.Errors {
-		if strings.EqualFold(err.Metric, metric) {
-			return true
-		}
-	}
-	return false
+	return client.MetricFailed(data, metric)
 }
 
 // UsageBar renders a ten-cell meter outside a card.

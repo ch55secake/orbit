@@ -12,7 +12,7 @@ over HTTP, normally through SSH port forwarding.
 - `orbit servers add`: register a Stardust endpoint locally
 - `orbit servers edit`: update a registered Stardust endpoint
 - `orbit servers remove`: remove a registered Stardust endpoint
-- `orbit status`: fetch CPU, memory, disk, and uptime metrics
+- `orbit status`: fetch CPU, memory, disk, uptime, swap, and network counters
 - managed SSH local port forwarding for remote Stardust agents
 - `orbit ssh <server>`: open an SSH shell using the configured connection
 - No hosted service required; remote shells are opened only on explicit request
@@ -184,14 +184,21 @@ seconds. Partial metric availability is represented by `data.errors`; an HTTP
 Versioned response fixtures and client compatibility tests are in
 `internal/client/testdata/stardust/v1`.
 
-The dashboard also accepts the proposed optional `data.swap` object with
+Both `orbit status` and the dashboard mark failed or invalid metric samples as
+unavailable rather than healthy zeros, while retaining the other metrics in a
+partial response. A Stardust `host` collector error also makes uptime unavailable.
+The CLI includes each collector's reason; valid zero CPU usage and uptime remain
+valid readings when their collectors have not failed.
+
+Stardust implements the optional `data.swap` object with
 `total_bytes`, `used_bytes`, `free_bytes`, and `used_percent`. When supplied, it
 shows used/total capacity and percentage below the resource cards (next to memory
 in the compact summary). Zero capacity means "not configured"; a `swap` collector
 error or invalid sample is "unavailable". Omitted/null swap data without an error
-is hidden, preserving older agents' display. Agent-side support is tracked in
-[stardust#28](https://github.com/ch55secake/stardust/issues/28) and is not yet
-implemented; the new swap fixtures model the proposed extension.
+is hidden, preserving older agents' display. `orbit status` also displays swap
+alongside RAM, with the same availability rules. Agent-side support was added in
+[stardust#28](https://github.com/ch55secake/stardust/issues/28); use an agent version
+that supplies this field.
 
 The optional proposed `data.filesystems` array adds `mount_point`, optional
 `filesystem`/`device` identity, `used_bytes`, `total_bytes`, `available_bytes`, and
@@ -210,7 +217,7 @@ When CPU and other supplemental metrics compete for limited space, filesystem
 details compact to a single row showing the fullest mount and a count of omitted
 entries. Enlarge the window to restore the bounded mount list.
 
-Orbit also accepts the proposed optional `data.network.interfaces` array. Each
+Orbit also accepts Stardust's optional `data.network.interfaces` array. Each
 entry has `name`, `bytes_received`, `bytes_sent`, `packets_received`, and
 `packets_sent`. The selected-server detail view shows RX/TX byte totals for the
 first two supplied interfaces and a count of additional entries, keeping virtual
@@ -218,9 +225,11 @@ interface lists from pushing other metrics off-screen. Missing, null, or empty
 lists leave older agents' display unchanged; a network collector error marks
 interface readings unavailable. Counters are cumulative, can reset, and may count
 the same traffic on multiple interfaces; they are not transfer rates and are not
-summed by Orbit. Agent-side support remains tracked in
-[stardust#29](https://github.com/ch55secake/stardust/issues/29); the interface
-fixture models the proposed extension, not a released-agent payload.
+summed by Orbit. `orbit status` prints the aggregate RX/TX byte and packet totals
+and every supplied interface's byte/packet counters, without the dashboard's
+display limit. Network collector errors suppress both aggregate and interface
+readings. Agent-side support was added in
+[stardust#29](https://github.com/ch55secake/stardust/issues/29).
 
 The proposed CPU extension adds `data.cpu.per_core_usage_percent` (an array whose
 indices identify logical cores) and `data.cpu.load_average` with `one_minute`,

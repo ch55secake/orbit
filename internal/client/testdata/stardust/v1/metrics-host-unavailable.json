@@ -1,0 +1,15 @@
+{
+  "api_version": "v1",
+  "timestamp": "2026-10-18T12:34:56Z",
+  "data": {
+    "hostname": "",
+    "os": {"name": "", "platform": "", "platform_version": "", "kernel_arch": ""},
+    "cpu": {"usage_percent": 23.5, "logical_cores": 8},
+    "memory": {"used_bytes": 3221225472, "total_bytes": 8589934592, "used_percent": 37.5},
+    "swap": {"total_bytes": 0, "used_bytes": 0, "free_bytes": 0, "used_percent": 0},
+    "disk": {"path": "/", "used_bytes": 10737418240, "total_bytes": 42949672960, "used_percent": 25},
+    "uptime_seconds": 0,
+    "network": {"bytes_received": 0, "bytes_sent": 0, "packets_received": 0, "packets_sent": 0, "interfaces": []},
+    "errors": [{"metric": "host", "message": "host metadata unavailable"}]
+  }
+}
