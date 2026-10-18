@@ -21,3 +21,41 @@ from a released agent. The producer issue is still open.
 The object uses `total_bytes`, `used_bytes`, `free_bytes`, and `used_percent`.
 An omitted/null object is absent; an all-zero object means no swap is configured.
 A `swap` entry in `data.errors` marks the sample unavailable even if absent.
+
+## Proposed filesystem extension fixtures
+
+`metrics-filesystems.json` and `metrics-filesystems-partial.json` model the
+optional `data.filesystems` array proposed in
+[stardust#27](https://github.com/ch55secake/stardust/issues/27). Producer-side
+collection and filtering are not implemented yet; these are proposed payloads,
+not captured output from a released agent. The legacy `disk` field is unchanged.
+
+Each entry has `mount_point`, optional `filesystem` and `device`, and byte/percent
+fields `used_bytes`, `total_bytes`, `available_bytes`, and `used_percent`. Available
+bytes may exclude reserved blocks. The partial fixture retains a healthy mount
+and an unavailable zero-capacity sample, with a `filesystems` collector error.
+Missing/null/empty lists remain compatible with older agents.
+
+## Proposed network interface extension
+
+`metrics-interfaces.json` models the additive `data.network.interfaces` array
+proposed in [stardust#29](https://github.com/ch55secake/stardust/issues/29), whose
+producer implementation is still pending. It retains the legacy aggregate
+counters and adds two interface records with a `name` and the same four
+byte/packet counter fields. All counters are cumulative and may reset; traffic
+can be observed on multiple interfaces and the list must not be summed to derive
+aggregate totals. Missing/null/empty arrays are compatible with older agents.
+
+## Proposed CPU extension fixtures
+
+`metrics-cpu-detail.json` and `metrics-cpu-detail-partial.json` model the proposed
+extension in [stardust#26](https://github.com/ch55secake/stardust/issues/26), not
+output from a released agent. Producer-side sampling and platform availability
+are not implemented yet. Existing aggregate CPU fields are retained.
+
+`data.cpu.per_core_usage_percent` is a nullable array of nullable percentage
+samples, indexed by logical core. `data.cpu.load_average` is an optional object
+with nullable `one_minute`, `five_minutes`, and `fifteen_minutes` samples. Null
+or missing values differ from valid zero. Load values are nonnegative numbers,
+not percentages. The partial fixture exercises absent/null samples and invalid
+per-core percentages without failing unrelated metrics.

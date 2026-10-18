@@ -28,15 +28,16 @@ type MetricsResponse struct {
 }
 
 type MetricsData struct {
-	Hostname string        `json:"hostname"`
-	OS       OSInfo        `json:"os"`
-	CPU      CPU           `json:"cpu"`
-	Memory   Memory        `json:"memory"`
-	Swap     *Swap         `json:"swap,omitempty"`
-	Disk     Disk          `json:"disk"`
-	Uptime   uint64        `json:"uptime_seconds"`
-	Network  Network       `json:"network"`
-	Errors   []MetricError `json:"errors,omitempty"`
+	Hostname    string        `json:"hostname"`
+	OS          OSInfo        `json:"os"`
+	CPU         CPU           `json:"cpu"`
+	Memory      Memory        `json:"memory"`
+	Swap        *Swap         `json:"swap,omitempty"`
+	Disk        Disk          `json:"disk"`
+	Filesystems []Filesystem  `json:"filesystems,omitempty"`
+	Uptime      uint64        `json:"uptime_seconds"`
+	Network     Network       `json:"network"`
+	Errors      []MetricError `json:"errors,omitempty"`
 }
 
 type MetricError struct {
@@ -52,8 +53,17 @@ type OSInfo struct {
 }
 
 type CPU struct {
-	UsagePercent float64 `json:"usage_percent"`
-	LogicalCores int     `json:"logical_cores"`
+	UsagePercent        float64      `json:"usage_percent"`
+	LogicalCores        int          `json:"logical_cores"`
+	PerCoreUsagePercent []*float64   `json:"per_core_usage_percent,omitempty"`
+	LoadAverage         *LoadAverage `json:"load_average,omitempty"`
+}
+
+// Pointer samples distinguish unsupported/null values from valid zero load.
+type LoadAverage struct {
+	OneMinute      *float64 `json:"one_minute"`
+	FiveMinutes    *float64 `json:"five_minutes"`
+	FifteenMinutes *float64 `json:"fifteen_minutes"`
 }
 
 type Memory struct {
@@ -78,7 +88,30 @@ type Disk struct {
 	UsedPercent float64 `json:"used_percent"`
 }
 
+// Filesystem is an optional per-mount sample; Disk remains the configured path.
+// Available bytes may exclude reserved space, so used + available can be less
+// than total.
+type Filesystem struct {
+	MountPoint     string  `json:"mount_point"`
+	Filesystem     string  `json:"filesystem,omitempty"`
+	Device         string  `json:"device,omitempty"`
+	UsedBytes      uint64  `json:"used_bytes"`
+	TotalBytes     uint64  `json:"total_bytes"`
+	AvailableBytes uint64  `json:"available_bytes"`
+	UsedPercent    float64 `json:"used_percent"`
+}
+
 type Network struct {
+	BytesReceived   uint64             `json:"bytes_received"`
+	BytesSent       uint64             `json:"bytes_sent"`
+	PacketsReceived uint64             `json:"packets_received"`
+	PacketsSent     uint64             `json:"packets_sent"`
+	Interfaces      []NetworkInterface `json:"interfaces,omitempty"`
+}
+
+// NetworkInterface counters are cumulative, like the aggregate Network values.
+type NetworkInterface struct {
+	Name            string `json:"name"`
 	BytesReceived   uint64 `json:"bytes_received"`
 	BytesSent       uint64 `json:"bytes_sent"`
 	PacketsReceived uint64 `json:"packets_received"`

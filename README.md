@@ -187,6 +187,50 @@ is hidden, preserving older agents' display. Agent-side support is tracked in
 [stardust#28](https://github.com/ch55secake/stardust/issues/28) and is not yet
 implemented; the new swap fixtures model the proposed extension.
 
+The optional proposed `data.filesystems` array adds `mount_point`, optional
+`filesystem`/`device` identity, `used_bytes`, `total_bytes`, `available_bytes`, and
+`used_percent` without replacing the existing `disk` metric. The dashboard shows
+up to two mounts, prioritizing the fullest valid samples, with used/total capacity
+in wide layouts; additional mounts are counted. Paths are truncated to keep the
+list bounded. Absent/null/empty
+lists preserve older agents' display. Invalid samples show "unavailable"; a
+`filesystems` collector error marks supplied samples as partial without hiding
+healthy mounts or unrelated metrics. Available space may exclude reserved blocks,
+so used plus available need not equal total. Agent-side collection/filtering is
+still tracked in [stardust#27](https://github.com/ch55secake/stardust/issues/27);
+the filesystem fixtures model the proposed extension, not a released-agent payload.
+
+When CPU and other supplemental metrics compete for limited space, filesystem
+details compact to a single row showing the fullest mount and a count of omitted
+entries. Enlarge the window to restore the bounded mount list.
+
+Orbit also accepts the proposed optional `data.network.interfaces` array. Each
+entry has `name`, `bytes_received`, `bytes_sent`, `packets_received`, and
+`packets_sent`. The selected-server detail view shows RX/TX byte totals for the
+first two supplied interfaces and a count of additional entries, keeping virtual
+interface lists from pushing other metrics off-screen. Missing, null, or empty
+lists leave older agents' display unchanged; a network collector error marks
+interface readings unavailable. Counters are cumulative, can reset, and may count
+the same traffic on multiple interfaces; they are not transfer rates and are not
+summed by Orbit. Agent-side support remains tracked in
+[stardust#29](https://github.com/ch55secake/stardust/issues/29); the interface
+fixture models the proposed extension, not a released-agent payload.
+
+The proposed CPU extension adds `data.cpu.per_core_usage_percent` (an array whose
+indices identify logical cores) and `data.cpu.load_average` with `one_minute`,
+`five_minutes`, and `fifteen_minutes`. The aggregate CPU reading is unchanged.
+The detail view shows the busiest four cores (two in narrow panes), preserving
+core indices and counting additional entries. Missing/null samples and invalid
+percentages are shown as `—`, not idle cores; omitted/empty optional fields add
+no display. Load averages are nonnegative scheduling-pressure values, not
+percentages, and can exceed 100. Orbit displays agent samples without deriving
+them from aggregate usage or resampling them. When space is tight, aggregate
+network telemetry and interface details may be compacted or hidden to retain
+CPU details and the core resource readings; enlarge the window for more detail.
+Producer-side sampling/platform support remains tracked in
+[stardust#26](https://github.com/ch55secake/stardust/issues/26) and is not yet
+implemented; the CPU fixtures model this proposed extension.
+
 ## Development
 
 ```sh
