@@ -59,7 +59,7 @@ func Render(data DashboardData) string {
 	footer := renderMenu(data)
 	help := ""
 	if data.ShowHelp && !data.PasswordPrompt && !data.UpdateConfirm && !data.ShellActive {
-		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · pgup/pgdown page · home/end first/last\ns SSH shell · u update Stardust · r refresh · q quit · ? close help")
+		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · pgup/pgdown page · home/end first/last\ns SSH shell · v services · u update Stardust · r refresh · q quit · ? close help")
 		if data.Width > 0 {
 			help = ansi.Wrap(help, data.Width, "")
 		}
@@ -415,6 +415,7 @@ func renderMenu(data DashboardData) string {
 	}
 	if !data.Loading {
 		hints = append(hints, menuHint("r", "refresh"))
+		hints = append(hints, menuHint("v", "services"))
 	}
 	if data.Selected != nil && data.Selected.Server.SSH != nil {
 		hints = append(hints, menuHint("s", "SSH"))

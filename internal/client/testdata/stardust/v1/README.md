@@ -1,5 +1,12 @@
 # Stardust API v1 fixtures
 
+`services-states.json` mirrors the implemented producer fixture in
+[Stardust PR #46](https://github.com/ch55secake/stardust/pull/46), including active,
+failed, inactive, and missing units plus optional process name/effective UID.
+Service client tests serve it through local HTTP alongside capability, permission,
+authentication, pagination, redirect, and response-boundary cases. These are
+constructed contract examples, not captured production responses.
+
 These fixtures document the JSON contract consumed by Orbit. Timestamps use
 RFC 3339 UTC (`Z`). CPU, memory, and disk percentages are in the range 0–100;
 `used_bytes`, `total_bytes`, and network byte counters are bytes; packet fields
