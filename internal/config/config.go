@@ -22,10 +22,11 @@ type Config struct {
 }
 
 type Server struct {
-	Name        string     `mapstructure:"name" yaml:"name"`
-	Address     string     `mapstructure:"address" yaml:"address"`
-	Description string     `mapstructure:"description" yaml:"description,omitempty"`
-	SSH         *SSHConfig `mapstructure:"ssh" yaml:"ssh,omitempty"`
+	Name             string     `mapstructure:"name" yaml:"name"`
+	Address          string     `mapstructure:"address" yaml:"address"`
+	Description      string     `mapstructure:"description" yaml:"description,omitempty"`
+	ServiceTokenFile string     `mapstructure:"service_token_file" yaml:"service_token_file,omitempty"`
+	SSH              *SSHConfig `mapstructure:"ssh" yaml:"ssh,omitempty"`
 }
 
 type SSHConfig struct {
@@ -170,6 +171,9 @@ func (s Server) Validate() error {
 			return err
 		}
 	}
+	if s.ServiceTokenFile != "" && (!filepath.IsAbs(s.ServiceTokenFile) || hasControl(s.ServiceTokenFile)) {
+		return errors.New("service_token_file must be an absolute path without control characters")
+	}
 	return nil
 }
 
@@ -304,6 +308,7 @@ func normalizeServer(server Server) Server {
 	server.Name = strings.TrimSpace(server.Name)
 	server.Address = strings.TrimSpace(server.Address)
 	server.Description = strings.TrimSpace(server.Description)
+	server.ServiceTokenFile = strings.TrimSpace(server.ServiceTokenFile)
 	if server.SSH != nil {
 		ssh := *server.SSH
 		ssh.Host = strings.TrimSpace(ssh.Host)
