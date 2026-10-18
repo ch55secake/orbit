@@ -32,6 +32,7 @@ type MetricsData struct {
 	OS       OSInfo        `json:"os"`
 	CPU      CPU           `json:"cpu"`
 	Memory   Memory        `json:"memory"`
+	Swap     *Swap         `json:"swap,omitempty"`
 	Disk     Disk          `json:"disk"`
 	Uptime   uint64        `json:"uptime_seconds"`
 	Network  Network       `json:"network"`
@@ -58,6 +59,15 @@ type CPU struct {
 type Memory struct {
 	UsedBytes   uint64  `json:"used_bytes"`
 	TotalBytes  uint64  `json:"total_bytes"`
+	UsedPercent float64 `json:"used_percent"`
+}
+
+// Swap is optional so older agents and unsupported platforms do not look like
+// hosts with a valid zero-capacity swap sample.
+type Swap struct {
+	TotalBytes  uint64  `json:"total_bytes"`
+	UsedBytes   uint64  `json:"used_bytes"`
+	FreeBytes   uint64  `json:"free_bytes"`
 	UsedPercent float64 `json:"used_percent"`
 }
 
