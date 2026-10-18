@@ -95,7 +95,16 @@ with the dashboard and supports terminal applications with an alternate screen.
 Press `Ctrl+]` to disconnect and restore metrics. When the shell exits, its final
 output and exit status remain visible until you close the frame. Dashboard shortcuts
 are inactive while the shell has focus; sessions are not saved and there is no
-scrollback or mouse forwarding. The CLI shell remains a normal full-terminal session.
+scrollback or mouse forwarding to remote applications. The CLI shell remains a
+normal full-terminal session.
+
+Drag with the left mouse button to select text inside the SSH pane. The frame,
+padding, and other dashboard panels are excluded. Press `Ctrl+Y` to copy the
+selection (requires terminal OSC 52 clipboard support), or Esc to clear it.
+`Ctrl+Shift+C` also works if your terminal forwards that shortcut to Orbit. The
+displayed shell snapshot freezes while selected; the remote process keeps running.
+Typing, pasting, or resizing clears the selection and restores live output. Native
+terminal selection overrides, such as Shift-drag, remain controlled by your terminal.
 
 If the window becomes too small for the shell frame, Orbit shows a compact resize
 warning and keeps the session at its last usable size. Shell input is paused until

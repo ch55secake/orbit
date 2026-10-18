@@ -49,6 +49,7 @@ type app struct {
 	shellServer      string
 	shellStatus      string
 	shellBounds      views.TerminalGeometry
+	shellSelection   *shellSelection
 }
 
 type metricsMsg struct {
@@ -137,6 +138,9 @@ func (m *app) Init() tea.Cmd {
 
 func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		m.selectShell(msg)
+		return m, nil
 	case shellEventMsg:
 		if msg.session != m.shellSession {
 			return m, nil
@@ -151,6 +155,7 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitShell(m.shellSession)
 	case tea.PasteMsg:
 		if m.shellSession != nil {
+			m.shellSelection = nil
 			if views.TerminalBounds(m.dashboardData()).Fits() {
 				m.shellSession.Paste(msg.Content)
 			}
@@ -182,6 +187,20 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.updateConfirmation(msg)
 		}
 		if m.shellSession != nil {
+			if m.shellSelection != nil {
+				switch msg.String() {
+				case "ctrl+y", "ctrl+shift+c":
+					text := m.shellSelection.content(false)
+					if text != "" {
+						return m, tea.SetClipboard(text)
+					}
+					return m, nil
+				case "esc":
+					m.shellSelection = nil
+					return m, nil
+				}
+			}
+			m.shellSelection = nil
 			if msg.String() == "ctrl+]" {
 				m.closeShell()
 				m.resizeTableHeight()
@@ -257,6 +276,7 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.fetchMetrics()
 		}
 	case tea.WindowSizeMsg:
+		m.shellSelection = nil
 		m.width = msg.Width
 		m.height = msg.Height
 		m.table.SetWidth(views.FleetWidth(msg.Width, msg.Height))
@@ -409,6 +429,9 @@ func (m *app) dashboardData() views.DashboardData {
 	}
 	if m.shellSession != nil {
 		data.ShellContent = m.shellSession.Render()
+		if m.shellSelection != nil {
+			data.ShellContent = m.shellSelection.content(true)
+		}
 	}
 	return data
 }
@@ -417,7 +440,10 @@ func (m *app) View() tea.View {
 	data := m.dashboardData()
 	view := tea.NewView(views.Render(data))
 	view.AltScreen = true
-	if m.shellSession != nil && m.shellStatus == "" && views.TerminalBounds(data).Fits() {
+	if m.shellSession != nil {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
+	if m.shellSession != nil && m.shellSelection == nil && m.shellStatus == "" && views.TerminalBounds(data).Fits() {
 		position, visible := m.shellSession.Cursor()
 		if visible {
 			view.Cursor = tea.NewCursor(m.shellBounds.X+position.X, m.shellBounds.Y+position.Y)
@@ -437,6 +463,7 @@ func (m *app) closeShell() {
 	}
 	m.shellServer = ""
 	m.shellStatus = ""
+	m.shellSelection = nil
 }
 
 // Keep every row's six values, but hide secondary columns on smaller screens.
