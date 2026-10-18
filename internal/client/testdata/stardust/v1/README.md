@@ -11,6 +11,12 @@ contract changes fail in CI rather than relying on copied inline JSON.
 `health-v2.json` is a negative fixture used to verify that an incompatible
 response version is reported clearly.
 
+`metrics-host-unavailable.json` models the implemented Stardust host collector
+failure: `data.errors` names `host`, and host metadata/uptime retain zero values.
+Consumers must not interpret the zero uptime as a healthy reading. The payload
+matches the collector contract at Stardust commit
+`254c08e7ec29d242982ae1c384856b1d58675428`.
+
 ## Proposed swap extension fixtures
 
 `metrics-complete.json` and `metrics-partial.json` retain the legacy payloads.

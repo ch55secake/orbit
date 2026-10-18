@@ -335,22 +335,8 @@ func printStatus(ctx context.Context, out io.Writer, cfg config.Config, apiClien
 		if _, err := fmt.Fprintln(out, "  status: online"); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(out, "  CPU: %.1f%% (%d cores)\n", data.CPU.UsagePercent, data.CPU.LogicalCores); err != nil {
+		if err := printMetrics(out, data); err != nil {
 			return err
-		}
-		if _, err := fmt.Fprintf(out, "  Memory: %.1f%% (%s / %s)\n", data.Memory.UsedPercent, client.FormatBytes(data.Memory.UsedBytes), client.FormatBytes(data.Memory.TotalBytes)); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(out, "  Disk: %.1f%% (%s / %s)\n", data.Disk.UsedPercent, client.FormatBytes(data.Disk.UsedBytes), client.FormatBytes(data.Disk.TotalBytes)); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(out, "  Uptime: %s\n", client.FormatUptime(data.Uptime)); err != nil {
-			return err
-		}
-		if len(data.Errors) > 0 {
-			if _, err := fmt.Fprintf(out, "  unavailable: %d metric(s)\n", len(data.Errors)); err != nil {
-				return err
-			}
 		}
 	}
 	return nil

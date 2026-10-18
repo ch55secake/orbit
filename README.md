@@ -178,6 +178,12 @@ seconds. Partial metric availability is represented by `data.errors`; an HTTP
 Versioned response fixtures and client compatibility tests are in
 `internal/client/testdata/stardust/v1`.
 
+Both `orbit status` and the dashboard mark failed or invalid metric samples as
+unavailable rather than healthy zeros, while retaining the other metrics in a
+partial response. A Stardust `host` collector error also makes uptime unavailable.
+The CLI includes each collector's reason; valid zero CPU usage and uptime remain
+valid readings when their collectors have not failed.
+
 The dashboard also accepts the proposed optional `data.swap` object with
 `total_bytes`, `used_bytes`, `free_bytes`, and `used_percent`. When supplied, it
 shows used/total capacity and percentage below the resource cards (next to memory
