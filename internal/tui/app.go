@@ -358,6 +358,9 @@ func (m *app) resizeTableHeight() {
 			if interfaces := components.InterfaceSummary(m.statuses[cursor].Metrics.Data, max(m.width-4, 1)); interfaces != "" {
 				reserved += lipgloss.Height(interfaces) + 1
 			}
+			if cpu := components.CPUDetails(m.statuses[cursor].Metrics.Data, max(m.width-4, 1)); cpu != "" {
+				reserved += lipgloss.Height(cpu) + 1
+			}
 		}
 	}
 	m.table.SetHeight(min(max(len(m.cfg.Servers)+1, 2), max(m.height-reserved, 2)))

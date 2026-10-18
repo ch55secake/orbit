@@ -31,3 +31,17 @@ counters and adds two interface records with a `name` and the same four
 byte/packet counter fields. All counters are cumulative and may reset; traffic
 can be observed on multiple interfaces and the list must not be summed to derive
 aggregate totals. Missing/null/empty arrays are compatible with older agents.
+
+## Proposed CPU extension fixtures
+
+`metrics-cpu-detail.json` and `metrics-cpu-detail-partial.json` model the proposed
+extension in [stardust#26](https://github.com/ch55secake/stardust/issues/26), not
+output from a released agent. Producer-side sampling and platform availability
+are not implemented yet. Existing aggregate CPU fields are retained.
+
+`data.cpu.per_core_usage_percent` is a nullable array of nullable percentage
+samples, indexed by logical core. `data.cpu.load_average` is an optional object
+with nullable `one_minute`, `five_minutes`, and `fifteen_minutes` samples. Null
+or missing values differ from valid zero. Load values are nonnegative numbers,
+not percentages. The partial fixture exercises absent/null samples and invalid
+per-core percentages without failing unrelated metrics.
