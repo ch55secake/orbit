@@ -28,15 +28,16 @@ type MetricsResponse struct {
 }
 
 type MetricsData struct {
-	Hostname string        `json:"hostname"`
-	OS       OSInfo        `json:"os"`
-	CPU      CPU           `json:"cpu"`
-	Memory   Memory        `json:"memory"`
-	Swap     *Swap         `json:"swap,omitempty"`
-	Disk     Disk          `json:"disk"`
-	Uptime   uint64        `json:"uptime_seconds"`
-	Network  Network       `json:"network"`
-	Errors   []MetricError `json:"errors,omitempty"`
+	Hostname    string        `json:"hostname"`
+	OS          OSInfo        `json:"os"`
+	CPU         CPU           `json:"cpu"`
+	Memory      Memory        `json:"memory"`
+	Swap        *Swap         `json:"swap,omitempty"`
+	Disk        Disk          `json:"disk"`
+	Filesystems []Filesystem  `json:"filesystems,omitempty"`
+	Uptime      uint64        `json:"uptime_seconds"`
+	Network     Network       `json:"network"`
+	Errors      []MetricError `json:"errors,omitempty"`
 }
 
 type MetricError struct {
@@ -76,6 +77,19 @@ type Disk struct {
 	UsedBytes   uint64  `json:"used_bytes"`
 	TotalBytes  uint64  `json:"total_bytes"`
 	UsedPercent float64 `json:"used_percent"`
+}
+
+// Filesystem is an optional per-mount sample; Disk remains the configured path.
+// Available bytes may exclude reserved space, so used + available can be less
+// than total.
+type Filesystem struct {
+	MountPoint     string  `json:"mount_point"`
+	Filesystem     string  `json:"filesystem,omitempty"`
+	Device         string  `json:"device,omitempty"`
+	UsedBytes      uint64  `json:"used_bytes"`
+	TotalBytes     uint64  `json:"total_bytes"`
+	AvailableBytes uint64  `json:"available_bytes"`
+	UsedPercent    float64 `json:"used_percent"`
 }
 
 type Network struct {

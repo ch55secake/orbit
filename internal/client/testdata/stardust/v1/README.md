@@ -21,3 +21,17 @@ from a released agent. The producer issue is still open.
 The object uses `total_bytes`, `used_bytes`, `free_bytes`, and `used_percent`.
 An omitted/null object is absent; an all-zero object means no swap is configured.
 A `swap` entry in `data.errors` marks the sample unavailable even if absent.
+
+## Proposed filesystem extension fixtures
+
+`metrics-filesystems.json` and `metrics-filesystems-partial.json` model the
+optional `data.filesystems` array proposed in
+[stardust#27](https://github.com/ch55secake/stardust/issues/27). Producer-side
+collection and filtering are not implemented yet; these are proposed payloads,
+not captured output from a released agent. The legacy `disk` field is unchanged.
+
+Each entry has `mount_point`, optional `filesystem` and `device`, and byte/percent
+fields `used_bytes`, `total_bytes`, `available_bytes`, and `used_percent`. Available
+bytes may exclude reserved blocks. The partial fixture retains a healthy mount
+and an unavailable zero-capacity sample, with a `filesystems` collector error.
+Missing/null/empty lists remain compatible with older agents.

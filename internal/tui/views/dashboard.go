@@ -99,6 +99,7 @@ func Render(data DashboardData) string {
 			lines = append(lines, status)
 		}
 		lines = append(lines, styles.Subtitle.Render(metrics.Hostname+" · "+metrics.OS.Name+" "+metrics.OS.PlatformVersion), "")
+		filesystems := components.FilesystemSummary(metrics, detailWidth)
 		telemetry := ""
 		cardHeight := 3
 		if expanded(data) && detailWidth >= 56 && !data.ShowHelp {
@@ -132,6 +133,29 @@ func Render(data DashboardData) string {
 			}
 			cardHeight = available / 2
 		}
+		if filesystems != "" {
+			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - lipgloss.Height(filesystems) - 1 - len(metrics.Errors)
+			if terminalWidth < 110 {
+				available -= lipgloss.Height(data.Table) + 1
+			}
+			if swap := components.SwapSummary(metrics); swap != "" {
+				available -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
+			}
+			if telemetry != "" {
+				available -= lipgloss.Height(telemetry) + 1
+			}
+			if data.Message != "" {
+				available -= 2
+			}
+			if data.Notice != "" {
+				available -= lipgloss.Height(ansi.Wrap(data.Notice, detailWidth, "")) + 1
+			}
+			if available < 4 && telemetry != "" {
+				available += lipgloss.Height(telemetry) + 1
+				telemetry = ""
+			}
+			cardHeight = min(cardHeight, (available-1)/2)
+		}
 		if cardHeight < 3 {
 			lines = append(lines, components.Summary(metrics))
 		} else {
@@ -139,6 +163,9 @@ func Render(data DashboardData) string {
 		}
 		if telemetry != "" {
 			lines = append(lines, "", telemetry)
+		}
+		if filesystems != "" {
+			lines = append(lines, "", filesystems)
 		}
 		for _, err := range metrics.Errors {
 			lines = append(lines, styles.Warn.Render(err.Metric+": "+err.Message))
