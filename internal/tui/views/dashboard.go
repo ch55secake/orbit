@@ -59,7 +59,7 @@ func Render(data DashboardData) string {
 	footer := renderMenu(data)
 	help := ""
 	if data.ShowHelp && !data.PasswordPrompt && !data.UpdateConfirm && !data.ShellActive {
-		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · pgup/pgdown page · home/end first/last\ns SSH shell · u update Stardust · r refresh · q quit · ? close help")
+		help = styles.Subtitle.Render("CONFIG  " + data.ConfigPath + "\n↑/k ↓/j navigate · pgup/pgdown page · home/end first/last\ns SSH shell · v services · u update Stardust · r refresh · q quit · ? close help")
 		if data.Width > 0 {
 			help = ansi.Wrap(help, data.Width, "")
 		}
@@ -94,6 +94,7 @@ func Render(data DashboardData) string {
 		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	case data.Selected.Metrics != nil:
 		metrics := data.Selected.Metrics.Data
+		warnings := metricErrorWarnings(metrics.Errors, detailWidth)
 		lines := []string{styles.Title.Render(data.Selected.Server.Name) + "  " + styles.Good.Render("● online")}
 		if status := tunnelStatus(data.Selected); status != "" {
 			lines = append(lines, status)
@@ -119,7 +120,7 @@ func Render(data DashboardData) string {
 			if terminalWidth < 110 {
 				available -= lipgloss.Height(data.Table) + 1
 			}
-			available -= len(metrics.Errors)
+			available -= len(warnings)
 			if swap := components.SwapSummary(metrics); swap != "" {
 				available -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
 			}
@@ -136,7 +137,7 @@ func Render(data DashboardData) string {
 			cardHeight = available / 2
 		}
 		if filesystems != "" || interfaces != "" || cpuDetails != "" {
-			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - len(metrics.Errors)
+			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - len(warnings)
 			if terminalWidth < 110 {
 				available -= lipgloss.Height(data.Table) + 1
 			}
@@ -206,9 +207,7 @@ func Render(data DashboardData) string {
 		if interfaces != "" {
 			lines = append(lines, "", interfaces)
 		}
-		for _, err := range metrics.Errors {
-			lines = append(lines, styles.Warn.Render(err.Metric+": "+err.Message))
-		}
+		lines = append(lines, warnings...)
 		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	}
 	if data.Message != "" {
@@ -415,6 +414,7 @@ func renderMenu(data DashboardData) string {
 	}
 	if !data.Loading {
 		hints = append(hints, menuHint("r", "refresh"))
+		hints = append(hints, menuHint("v", "services"))
 	}
 	if data.Selected != nil && data.Selected.Server.SSH != nil {
 		hints = append(hints, menuHint("s", "SSH"))

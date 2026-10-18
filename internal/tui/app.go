@@ -25,31 +25,34 @@ import (
 )
 
 type app struct {
-	version          string
-	configPath       string
-	ctx              context.Context
-	cfg              config.Config
-	apiClient        metricsClient
-	tunnels          server.TunnelManager
-	table            table.Model
-	statuses         []server.Status
-	loading          bool
-	message          string
-	width            int
-	height           int
-	showHelp         bool
-	program          *tea.Program
-	passwordRequest  *passwordRequest
-	passwordInput    []byte
-	passwordPromptMu sync.Mutex
-	updateTarget     *config.Server
-	notice           string
-	noticeError      bool
-	shellSession     *shell.Session
-	shellServer      string
-	shellStatus      string
-	shellBounds      views.TerminalGeometry
-	shellSelection   *shellSelection
+	version           string
+	configPath        string
+	ctx               context.Context
+	cfg               config.Config
+	apiClient         metricsClient
+	tunnels           server.TunnelManager
+	table             table.Model
+	statuses          []server.Status
+	loading           bool
+	message           string
+	width             int
+	height            int
+	showHelp          bool
+	program           *tea.Program
+	passwordRequest   *passwordRequest
+	passwordInput     []byte
+	passwordPromptMu  sync.Mutex
+	updateTarget      *config.Server
+	notice            string
+	noticeError       bool
+	shellSession      *shell.Session
+	shellServer       string
+	shellStatus       string
+	shellBounds       views.TerminalGeometry
+	shellSelection    *shellSelection
+	services          *serviceBrowser
+	serviceLoader     serviceLoader
+	serviceGeneration uint64
 }
 
 type metricsMsg struct {
@@ -94,6 +97,7 @@ func Run(configPath, version string) (runErr error) {
 	}()
 	model := newApp(cfg, configPath, version)
 	defer model.closeShell()
+	defer model.closeServices()
 	model.ctx = ctx
 	model.tunnels = tunnels
 	program := tea.NewProgram(model, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout))
@@ -138,6 +142,9 @@ func (m *app) Init() tea.Cmd {
 
 func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case servicesMsg:
+		m.receiveServices(msg)
+		return m, nil
 	case tea.MouseMsg:
 		m.selectShell(msg)
 		return m, nil
@@ -154,6 +161,10 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, waitShell(m.shellSession)
 	case tea.PasteMsg:
+		if m.services != nil && m.services.editing && m.passwordRequest == nil {
+			m.services.appendFilter(msg.Content)
+			return m, nil
+		}
 		if m.shellSession != nil {
 			m.shellSelection = nil
 			if views.TerminalBounds(m.dashboardData()).Fits() {
@@ -211,12 +222,26 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.services != nil {
+			return m, m.serviceKeys(msg)
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "?":
 			m.showHelp = !m.showHelp
 			return m, nil
+		case "v":
+			if m.loading {
+				m.message = "Wait for metrics loading to finish before browsing services"
+				return m, nil
+			}
+			if len(m.cfg.Servers) == 0 {
+				return m, nil
+			}
+			m.showHelp = false
+			m.services = &serviceBrowser{}
+			return m, m.loadServices("")
 		case "s":
 			if m.loading {
 				m.message = "Wait for metrics loading to finish before opening SSH"
@@ -438,6 +463,12 @@ func (m *app) dashboardData() views.DashboardData {
 
 func (m *app) View() tea.View {
 	data := m.dashboardData()
+	if m.services != nil && m.passwordRequest == nil {
+		browser := m.services
+		view := tea.NewView(views.RenderServices(data, views.ServiceBrowserData{Page: browser.page, Cursor: browser.cursor, Filter: browser.query.Filter, Input: browser.input, Editing: browser.editing, Loading: browser.loading, Error: browser.err, Detail: browser.detail, PageNumber: len(browser.previous) + 1}))
+		view.AltScreen = true
+		return view
+	}
 	view := tea.NewView(views.Render(data))
 	view.AltScreen = true
 	if m.shellSession != nil {
