@@ -34,3 +34,19 @@ func ReadServices(ctx context.Context, target config.Server, tunnels TunnelManag
 	page, err := api.List(ctx, query)
 	return page, nil, err
 }
+
+func ReadServiceLogs(ctx context.Context, target config.Server, tunnels TunnelManager, prompt PasswordPrompt, unit string, query client.ServiceLogQuery) (client.ServiceLogPage, error) {
+	api, err := client.NewServices(target.Address, "", 5*time.Second)
+	if err != nil {
+		return client.ServiceLogPage{}, err
+	}
+	if target.SSH != nil {
+		if tunnels == nil {
+			return client.ServiceLogPage{}, errors.New("SSH tunnel manager is unavailable")
+		}
+		if err := prepareTunnel(ctx, target, tunnels, prompt, false); err != nil {
+			return client.ServiceLogPage{}, err
+		}
+	}
+	return api.Logs(ctx, target.ServiceLogTokenFile, unit, query)
+}

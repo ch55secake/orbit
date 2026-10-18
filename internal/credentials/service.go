@@ -2,7 +2,7 @@
 package credentials
 
 import (
-	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -10,34 +10,42 @@ import (
 )
 
 func ServiceToken(path string) (string, error) {
+	return readServiceToken(path, "service_token_file", "service")
+}
+
+func ServiceLogToken(path string) (string, error) {
+	return readServiceToken(path, "service_log_token_file", "service log")
+}
+
+func readServiceToken(path, setting, label string) (string, error) {
 	if path == "" {
-		return "", errors.New("configure service_token_file for this server (a private file containing its service read token)")
+		return "", fmt.Errorf("configure %s for this server (a private file containing its %s read token)", setting, label)
 	}
 	link, err := os.Lstat(path)
 	if err != nil || !link.Mode().IsRegular() {
-		return "", errors.New("service token file must exist and be regular, not a symlink")
+		return "", fmt.Errorf("%s must exist and be regular, not a symlink", strings.ReplaceAll(setting, "_", " "))
 	}
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return "", errors.New("cannot open service token file")
+		return "", fmt.Errorf("cannot open %s", strings.ReplaceAll(setting, "_", " "))
 	}
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
-		return "", errors.New("cannot inspect service token file")
+		return "", fmt.Errorf("cannot inspect %s", strings.ReplaceAll(setting, "_", " "))
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !os.SameFile(link, info) || !info.Mode().IsRegular() || !ok || stat.Uid != uint32(os.Geteuid()) || (info.Mode().Perm() != 0400 && info.Mode().Perm() != 0600) {
-		return "", errors.New("service token file must be owned by the current user with mode 0400 or 0600")
+		return "", fmt.Errorf("%s must be owned by the current user with mode 0400 or 0600", strings.ReplaceAll(setting, "_", " "))
 	}
 	data, err := io.ReadAll(io.LimitReader(file, 4097))
 	if err != nil || len(data) > 4096 {
-		return "", errors.New("cannot read service token file or file exceeds 4096 bytes")
+		return "", fmt.Errorf("cannot read %s or file exceeds 4096 bytes", strings.ReplaceAll(setting, "_", " "))
 	}
 	defer clear(data)
 	token := strings.TrimSpace(string(data))
 	if len(token) < 32 || len(token) > 256 || strings.IndexFunc(token, func(r rune) bool { return r < 33 || r > 126 }) >= 0 {
-		return "", errors.New("service token must contain 32–256 printable non-space ASCII characters")
+		return "", fmt.Errorf("%s token must contain 32–256 printable non-space ASCII characters", label)
 	}
 	return token, nil
 }

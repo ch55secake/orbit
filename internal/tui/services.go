@@ -12,6 +12,7 @@ import (
 )
 
 type serviceLoader func(context.Context, config.Server, client.ServiceQuery, string) (client.ServicePage, *client.ServiceUnit, error)
+type serviceLogLoader func(context.Context, config.Server, string, client.ServiceLogQuery) (client.ServiceLogPage, error)
 
 type serviceBrowser struct {
 	page     client.ServicePage
@@ -23,6 +24,7 @@ type serviceBrowser struct {
 	loading  bool
 	err      string
 	detail   *client.ServiceUnit
+	logs     *serviceLogState
 	cancel   context.CancelFunc
 }
 
@@ -36,6 +38,9 @@ type servicesMsg struct {
 func (m *app) closeServices() {
 	if m.services != nil && m.services.cancel != nil {
 		m.services.cancel()
+	}
+	if m.services != nil {
+		m.closeServiceLogs()
 	}
 	m.serviceGeneration++
 	m.services = nil
@@ -92,6 +97,9 @@ func (m *app) receiveServices(msg servicesMsg) {
 
 func (m *app) serviceKeys(key tea.KeyPressMsg) tea.Cmd {
 	browser := m.services
+	if browser.logs != nil {
+		return m.serviceLogKeys(key)
+	}
 	if key.String() == "ctrl+c" {
 		m.closeServices()
 		return tea.Quit
@@ -125,17 +133,7 @@ func (m *app) serviceKeys(key tea.KeyPressMsg) tea.Cmd {
 		m.closeServices()
 		return tea.Quit
 	case "tab", "shift+tab":
-		if len(m.cfg.Servers) < 2 {
-			return nil
-		}
-		index := m.table.Cursor() + 1
-		if key.String() == "shift+tab" {
-			index = m.table.Cursor() + len(m.cfg.Servers) - 1
-		}
-		m.closeServices()
-		m.table.SetCursor(index % len(m.cfg.Servers))
-		m.services = &serviceBrowser{}
-		return m.loadServices("")
+		return m.switchServiceServer(key)
 	case "/":
 		browser.editing, browser.input = true, browser.query.Filter
 	case "r":
@@ -148,6 +146,8 @@ func (m *app) serviceKeys(key tea.KeyPressMsg) tea.Cmd {
 		if !browser.loading && len(browser.page.Units) > 0 {
 			return m.loadServices(browser.page.Units[browser.cursor].Name)
 		}
+	case "g":
+		return m.openServiceLogs()
 	case "down", "j", "up", "k", "home", "end":
 		if browser.loading || len(browser.page.Units) == 0 {
 			return nil
@@ -179,6 +179,20 @@ func (m *app) serviceKeys(key tea.KeyPressMsg) tea.Cmd {
 		return m.loadServices("")
 	}
 	return nil
+}
+
+func (m *app) switchServiceServer(key tea.KeyPressMsg) tea.Cmd {
+	if len(m.cfg.Servers) < 2 {
+		return nil
+	}
+	index := m.table.Cursor() + 1
+	if key.String() == "shift+tab" {
+		index = m.table.Cursor() + len(m.cfg.Servers) - 1
+	}
+	m.closeServices()
+	m.table.SetCursor(index % len(m.cfg.Servers))
+	m.services = &serviceBrowser{}
+	return m.loadServices("")
 }
 
 func (b *serviceBrowser) appendFilter(text string) {

@@ -182,14 +182,14 @@ func serviceFooter(width int, editing bool) string {
 	case width < 22:
 		return "r · Esc back"
 	case width < 36:
-		return "↑↓ · / · r · Esc back"
+		return "↑↓ · g logs · / · Esc back"
 	case width < 56:
-		return "↑↓ · / filter · r · Tab · Esc back"
+		return "↑↓ · g logs · / filter · Tab · Esc back"
 	case width < 70:
-		return "↑↓ · Enter · ←→ · / filter · r · Tab server · Esc back"
+		return "↑↓ · Enter · g logs · ←→ · / filter · Tab server · Esc back"
 	case width < 90:
-		return "↑↓ · Enter inspect · ←→ page · / filter · r · Tab server · Esc back"
+		return "↑↓ · Enter inspect · g logs · ←→ page · / filter · Tab server · Esc back"
 	default:
-		return "↑↓ select · Enter inspect · ←→ page · / filter · r refresh · Tab server · Esc back"
+		return "↑↓ select · Enter inspect · g logs · ←→ page · / filter · Tab server · Esc back"
 	}
 }

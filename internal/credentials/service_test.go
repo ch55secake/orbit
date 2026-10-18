@@ -55,3 +55,17 @@ func TestServiceTokenPrivateFile(t *testing.T) {
 		t.Fatal("symlink accepted")
 	}
 }
+
+func TestServiceLogTokenUsesPrivateFilePolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "log-token")
+	if err := os.WriteFile(path, []byte(testToken+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	token, err := ServiceLogToken(path)
+	if err != nil || token != testToken {
+		t.Fatalf("service log token: %q %v", token, err)
+	}
+	if _, err := ServiceLogToken(""); err == nil || !strings.Contains(err.Error(), "service_log_token_file") {
+		t.Fatalf("missing log token setting was not actionable: %v", err)
+	}
+}

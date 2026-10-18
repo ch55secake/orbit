@@ -1,41 +1,45 @@
 # Browsing systemd services
 
-Orbit uses Stardust's read-only service inventory API, not `systemctl` over SSH.
-The managed SSH tunnel/password workflow can carry API traffic; no interactive
-shell is opened. Logs and restart controls remain separate features.
+Orbit uses Stardust's read-only service inventory and journal APIs, not
+`systemctl` or `journalctl` over SSH. The managed SSH tunnel/password workflow
+can carry API traffic; no interactive shell is opened. Restart controls remain a
+separate feature.
 
 ## Setup
 
-Use a Stardust version with the inventory API (introduced in
-[Stardust #46](https://github.com/ch55secake/stardust/pull/46)). On the agent,
-explicitly configure its private service policy, random service read token, and
-**exact unit allowlist**, following the
+Use a Stardust version with the service and logs APIs. On the agent, explicitly
+configure its private service policy, random inventory token, separate random
+log-read token, and **exact unit allowlists**, following the
 [producer contract](https://github.com/ch55secake/stardust/blob/main/docs/services-api.md).
-Inventory is disabled by default and supports systemd Linux, not macOS or
-non-systemd Linux. Only allowlisted units are visible.
+Both capabilities are disabled by default. They support systemd Linux, not macOS
+or non-systemd Linux. Only units in each respective allowlist are visible.
 
-On the machine running Orbit, put **only the token** in a private regular file
+On the machine running Orbit, put each token in its own private regular file
 owned by your user, mode `0400` or `0600`. A trailing newline is accepted; JSON,
-symlinks, group-readable files, and tokens containing spaces are not. Protect its
-parent directory. Never put the token itself in arguments, YAML, URLs, source
-control, screenshots, or logs. Reference the file for the intended server:
+symlinks, group-readable files, and tokens containing spaces are not. Protect the
+parent directories. Never put either token itself in arguments, YAML, URLs,
+source control, screenshots, or logs. Reference the files for the intended
+server:
 
 ```sh
 orbit servers edit --name production --service-token-file /absolute/private/path/service-token
+orbit servers edit --name production --service-log-token-file /absolute/private/path/service-log-token
 ```
 
-The flag also works when adding servers. YAML uses `service_token_file`: an
-absolute **path**, not a secret. An empty flag clears it. Editing a server's API
-address clears the old reference unless `--service-token-file` is explicitly
-provided again, preventing accidental reuse with another server. If manually
-editing YAML or changing SSH routing, keep credentials matched to the agent.
+The flags also work when adding servers. YAML uses `service_token_file` and
+`service_log_token_file`: absolute **paths**, not secrets. Each empty flag clears
+its reference. Editing a server's API address clears both old references unless
+they are explicitly provided again, preventing accidental credential reuse with
+another server. Keep the tokens separate and matched to the agent's respective
+policies.
 
 Service credentials require HTTPS or numeric-loopback HTTP (for example,
 `http://127.0.0.1:18787` through a trusted SSH tunnel). Plain remote HTTP is
 refused. Redirects are **never followed**, including another port on the same
 host. Tokens are not sent to capabilities, metrics, or health, nor shared across
-servers. Orbit reloads the token file for each read, allowing rotation alongside
-the agent policy. This token grants service **read access only**.
+servers. Orbit reloads each token file for every request. Inventory permission
+does not grant log access; log credentials are never sent to inventory requests.
+Both credentials grant **read access only**.
 
 ## CLI
 
@@ -44,6 +48,8 @@ orbit services list production
 orbit services list production --filter worker --limit 10
 orbit services list production --filter worker --limit 10 --cursor worker@blue.service
 orbit services show production worker@blue.service
+orbit services logs production worker@blue.service --limit 100
+orbit services logs production worker@blue.service --since 2026-10-18T12:00:00Z --follow
 ```
 
 `list` prints one bounded page (1–50 units, default 20). Echo the returned cursor
@@ -51,6 +57,12 @@ as `--cursor` with the same filter; do not infer cursor values. Filtering is a
 case-sensitive unit-name substring. `show` reads current canonical identity,
 description, load/active/sub states, unit-file state, main PID, and optional
 process name/effective UID.
+
+`logs` reads a bounded page (1–100 entries) in oldest-to-newest order. Use the
+printed `--before` opaque cursor to page older history, keeping the same time
+filters. `--follow` polls with bounded requests until Ctrl+C; `--after` resumes
+from a returned opaque cursor. Empty logs are reported explicitly. Logs may
+contain application secrets; Orbit does not persist, export, or copy them.
 
 ## TUI
 
@@ -61,6 +73,7 @@ context; tall layouts retain the Saturn masthead. Controls:
 | --- | --- |
 | Up/Down or k/j; Home/End | Select a unit within the page |
 | Enter | Fetch live details for the selected unit |
+| g | Open the selected unit's logs |
 | r | Refresh the page, or the inspected unit |
 | Right/Left, l/h, PageDown/PageUp | Next/previous page |
 | / | Edit a name filter; Enter applies, Esc cancels |
@@ -73,7 +86,12 @@ visible while navigating. For a long description, use CLI detail output.
 Filtering resets pagination. Only the current page and a bounded cursor history
 are retained. Switching servers, refreshing, or leaving cancels pending reads;
 late responses cannot overwrite another server's inventory. There is no
-background service polling or automatic action.
+background service polling or automatic action. The log view bounds retained
+entries and message bytes, supports paging, scrolling, follow/pause, refresh, and
+cancellation when leaving or switching servers. Log content is sanitized and
+never automatically copied or exported. In the log view, PgUp loads older pages;
+f toggles follow, p pauses/resumes it, r refreshes, Tab/Shift+Tab switches
+servers, and Esc returns to the service browser.
 
 ## State and errors
 
@@ -85,6 +103,11 @@ background service polling or automatic action.
 - Disabled inventory, rejected credentials, a forbidden unit, insufficient
   systemd permissions, unavailable backends, and timeouts have distinct messages.
   Check agent configuration rather than granting Orbit broader access.
+- Log access has its own credential and unit allowlist. Unsupported journal
+  capability, disabled access, rejected credentials, forbidden/missing units,
+  expired cursors, insufficient journal permissions, and unavailable backends
+  are distinguished. Refresh from recent history after an expired cursor. There
+  is no broader-access request or SSH fallback.
 - Older agents and unsupported hosts show actionable capability messages. The
   dashboard and existing SSH features remain available. There is no SSH-command
   fallback.
