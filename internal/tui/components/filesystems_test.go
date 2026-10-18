@@ -67,6 +67,27 @@ func TestUnavailableAndPartialFilesystems(t *testing.T) {
 	}
 }
 
+func TestPartialHeadingIncludesUnreadableMountCount(t *testing.T) {
+	data := client.MetricsData{
+		Filesystems: []client.Filesystem{{MountPoint: "/", TotalBytes: 100, UsedBytes: 50, UsedPercent: 50}},
+		Errors: []client.MetricError{
+			{Metric: "filesystems", Message: `mount "/run/user/0": permission denied`},
+			{Metric: "FILESYSTEMS", Message: `mount "/var/lib/docker/rootfs/overlay": permission denied`},
+			{Metric: "filesystems", Message: "mount table unavailable"},
+		},
+	}
+	view := ansi.Strip(FilesystemSummary(data, 80))
+	if !strings.Contains(view, "FILESYSTEMS · partial · 2 mounts unavailable") {
+		t.Fatalf("missing compact error count: %q", view)
+	}
+	if strings.Contains(view, "/run/user") || strings.Contains(view, "/var/lib/docker") {
+		t.Fatal("mount deny details leaked into summary")
+	}
+	if height := lipgloss.Height(FilesystemSummary(data, 80)); height != 2 {
+		t.Fatalf("partial list uses %d lines, want heading and mount", height)
+	}
+}
+
 func TestLongAndUnsafeMountPaths(t *testing.T) {
 	data := client.MetricsData{Filesystems: []client.Filesystem{{MountPoint: "\x1b[31m/data\x1b[0m\n\t" + strings.Repeat("界", 100), TotalBytes: 1024, UsedPercent: 50}}}
 	for _, width := range []int{24, 40, 80} {

@@ -94,6 +94,7 @@ func Render(data DashboardData) string {
 		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	case data.Selected.Metrics != nil:
 		metrics := data.Selected.Metrics.Data
+		warnings := metricErrorWarnings(metrics.Errors, detailWidth)
 		lines := []string{styles.Title.Render(data.Selected.Server.Name) + "  " + styles.Good.Render("● online")}
 		if status := tunnelStatus(data.Selected); status != "" {
 			lines = append(lines, status)
@@ -119,7 +120,7 @@ func Render(data DashboardData) string {
 			if terminalWidth < 110 {
 				available -= lipgloss.Height(data.Table) + 1
 			}
-			available -= len(metrics.Errors)
+			available -= len(warnings)
 			if swap := components.SwapSummary(metrics); swap != "" {
 				available -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
 			}
@@ -136,7 +137,7 @@ func Render(data DashboardData) string {
 			cardHeight = available / 2
 		}
 		if filesystems != "" || interfaces != "" || cpuDetails != "" {
-			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - len(metrics.Errors)
+			available := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - len(warnings)
 			if terminalWidth < 110 {
 				available -= lipgloss.Height(data.Table) + 1
 			}
@@ -206,9 +207,7 @@ func Render(data DashboardData) string {
 		if interfaces != "" {
 			lines = append(lines, "", interfaces)
 		}
-		for _, err := range metrics.Errors {
-			lines = append(lines, styles.Warn.Render(err.Metric+": "+err.Message))
-		}
+		lines = append(lines, warnings...)
 		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	}
 	if data.Message != "" {
