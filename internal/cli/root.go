@@ -38,6 +38,7 @@ func New(version string) *cobra.Command {
 		statusCommand(&configPath),
 		sshCommand(&configPath),
 		stardustCommand(&configPath),
+		servicesCommand(&configPath),
 	)
 	return root
 }
@@ -92,7 +93,7 @@ func serversCommand(configPath *string) *cobra.Command {
 }
 
 func addServerCommand(configPath *string) *cobra.Command {
-	var name, address, description string
+	var name, address, description, serviceTokenFile string
 	var ssh sshFlags
 	command := &cobra.Command{
 		Use:   "add",
@@ -109,7 +110,7 @@ func addServerCommand(configPath *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cfg.AddServer(config.Server{Name: name, Address: address, Description: description, SSH: sshConfig}); err != nil {
+			if err := cfg.AddServer(config.Server{Name: name, Address: address, Description: description, SSH: sshConfig, ServiceTokenFile: serviceTokenFile}); err != nil {
 				return err
 			}
 			return config.Save(*configPath, cfg)
@@ -118,12 +119,13 @@ func addServerCommand(configPath *string) *cobra.Command {
 	command.Flags().StringVar(&name, "name", "", "server name")
 	command.Flags().StringVar(&address, "address", "", "Stardust base URL")
 	command.Flags().StringVar(&description, "description", "", "optional description")
+	command.Flags().StringVar(&serviceTokenFile, "service-token-file", "", "absolute path to private service read token file (not the token)")
 	ssh.addFlags(command)
 	return command
 }
 
 func editServerCommand(configPath *string) *cobra.Command {
-	var name, newName, address, description string
+	var name, newName, address, description, serviceTokenFile string
 	var ssh sshFlags
 	var direct bool
 	command := &cobra.Command{
@@ -134,8 +136,8 @@ func editServerCommand(configPath *string) *cobra.Command {
 			if strings.TrimSpace(name) == "" {
 				return fmt.Errorf("--name is required")
 			}
-			if !cmd.Flags().Changed("new-name") && !cmd.Flags().Changed("address") && !cmd.Flags().Changed("description") && !ssh.changed(cmd) && !cmd.Flags().Changed("direct") {
-				return fmt.Errorf("at least one of --new-name, --address, or --description is required")
+			if !cmd.Flags().Changed("new-name") && !cmd.Flags().Changed("address") && !cmd.Flags().Changed("description") && !cmd.Flags().Changed("service-token-file") && !ssh.changed(cmd) && !cmd.Flags().Changed("direct") {
+				return fmt.Errorf("at least one server setting must be provided")
 			}
 			if direct && ssh.changed(cmd) {
 				return fmt.Errorf("--direct cannot be combined with SSH tunnel settings")
@@ -161,7 +163,13 @@ func editServerCommand(configPath *string) *cobra.Command {
 				updated.Name = newName
 			}
 			if cmd.Flags().Changed("address") {
+				if updated.Address != strings.TrimSpace(address) {
+					updated.ServiceTokenFile = ""
+				}
 				updated.Address = address
+			}
+			if cmd.Flags().Changed("service-token-file") {
+				updated.ServiceTokenFile = serviceTokenFile
 			}
 			if cmd.Flags().Changed("description") {
 				updated.Description = description
@@ -190,6 +198,7 @@ func editServerCommand(configPath *string) *cobra.Command {
 	command.Flags().StringVar(&newName, "new-name", "", "new server name")
 	command.Flags().StringVar(&address, "address", "", "new Stardust base URL")
 	command.Flags().StringVar(&description, "description", "", "new description (empty clears it)")
+	command.Flags().StringVar(&serviceTokenFile, "service-token-file", "", "absolute path to private service read token file (empty clears it)")
 	command.Flags().BoolVar(&direct, "direct", false, "remove SSH tunnel settings")
 	ssh.addFlags(command)
 	return command

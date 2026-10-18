@@ -140,6 +140,12 @@ or automatic background updates are performed.
 
 ## Dashboard controls
 
+Press **v** to browse the selected server's authorized systemd services, or use
+`orbit services list <server>` / `orbit services show <server> <unit.service>`.
+See [Browsing systemd services](docs/services.md) for setup and controls. This
+requires opted-in Stardust inventory and a private per-server `service_token_file`;
+it never opens an SSH shell or restarts services.
+
 - `↑`/`k`, `↓`/`j`: move through servers
 - `PgUp`/`PgDown`: move a page; `Home`/`End`: jump to the first/last server
 - `r`: refresh all metrics
