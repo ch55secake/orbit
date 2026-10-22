@@ -38,14 +38,27 @@ func renderTerminalResizeWarning(data DashboardData) string {
 	if data.Width <= 0 || data.Height <= 0 {
 		return ""
 	}
+	title := "SSH · " + data.ShellServer
+	if data.ShellUpdate {
+		title = "UPDATE · " + data.ShellServer
+	}
 	status := data.ShellStatus
 	if status == "" {
 		status = "session kept open"
 	}
+	activity := "Resize terminal to show shell."
+	closeHint := "Ctrl+] close SSH"
+	if data.ShellUpdate {
+		activity = "Resize terminal to show update."
+		closeHint = "Ctrl+] close update details"
+		if data.UpdateRunning {
+			closeHint = "Update is running; please wait"
+		}
+	}
 	lines := []string{
-		styles.Title.Render("SSH · " + data.ShellServer + " · " + status),
-		styles.Warn.Render("Resize terminal to show shell."),
-		styles.Subtitle.Render("Ctrl+] close SSH"),
+		styles.Title.Render(title + " · " + status),
+		styles.Warn.Render(activity),
+		styles.Subtitle.Render(closeHint),
 	}
 	if data.Height < len(lines) {
 		lines = lines[len(lines)-data.Height:]
@@ -58,6 +71,9 @@ func renderTerminalResizeWarning(data DashboardData) string {
 
 func renderTerminal(data DashboardData, width int) string {
 	title := "SSH · " + data.ShellServer
+	if data.ShellUpdate {
+		title = "UPDATE · " + data.ShellServer
+	}
 	if data.ShellStatus != "" {
 		title += " · " + data.ShellStatus
 	}

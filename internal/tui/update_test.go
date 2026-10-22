@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"context"
 	"errors"
+	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,6 +22,11 @@ func updateServer(name string) config.Server {
 
 func TestUpdateRequiresConfirmationAndPinsTarget(t *testing.T) {
 	model, _ := testApp([]config.Server{updateServer("alpha"), updateServer("beta")})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 32})
+	model.updateCommand = func(context.Context, config.Server, string) (*exec.Cmd, error) {
+		return exec.Command("sh", "-c", "sleep 30"), nil
+	}
+	t.Cleanup(model.closeShell)
 	if !strings.Contains(ansi.Strip(model.View().Content), "u update") {
 		t.Fatal("update menu option missing")
 	}
@@ -42,7 +50,18 @@ func TestUpdateRequiresConfirmationAndPinsTarget(t *testing.T) {
 	}
 	_, cmd = model.Update(keyPress("y"))
 	if cmd == nil || model.updateTarget != nil {
-		t.Fatal("confirmation did not launch the terminal process")
+		t.Fatal("confirmation did not start the update")
+	}
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+		if model.shellSession == nil || !model.updateRunning {
+			t.Fatal("supported platform did not start the update inside the TUI")
+		}
+		view := ansi.Strip(model.View().Content)
+		if !strings.Contains(view, "UPDATE · alpha") || !strings.Contains(view, "SSH/sudo prompt") {
+			t.Fatalf("update terminal is not clearly presented in the TUI: %q", view)
+		}
+	} else if model.shellSession != nil {
+		t.Fatal("unsupported platform unexpectedly started an embedded update")
 	}
 }
 

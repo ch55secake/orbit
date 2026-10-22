@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +45,10 @@ type app struct {
 	passwordInput        []byte
 	passwordPromptMu     sync.Mutex
 	updateTarget         *config.Server
+	updateCommand        func(context.Context, config.Server, string) (*exec.Cmd, error)
+	updateServer         string
+	updateRunning        bool
+	shellUpdate          bool
 	notice               string
 	noticeError          bool
 	shellSession         *shell.Session
@@ -114,12 +120,13 @@ func newApp(cfg config.Config, configPath, version string) *app {
 	styles.Header = styles.Header.Bold(false).Foreground(lipgloss.Color("#8993a5"))
 	styles.Selected = styles.Selected.Bold(false).Foreground(lipgloss.Color("#e2e8f0")).Background(lipgloss.Color("#293047"))
 	model := &app{
-		version:    version,
-		configPath: configPath,
-		cfg:        cfg,
-		ctx:        context.Background(),
-		apiClient:  client.New(5 * time.Second),
-		statuses:   make([]server.Status, len(cfg.Servers)),
+		version:       version,
+		configPath:    configPath,
+		cfg:           cfg,
+		updateCommand: update.Command,
+		ctx:           context.Background(),
+		apiClient:     client.New(5 * time.Second),
+		statuses:      make([]server.Status, len(cfg.Servers)),
 		table: table.New(
 			table.WithColumns(tableColumns(90)),
 			table.WithRows(rows),
@@ -159,6 +166,15 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if exited, err := m.shellSession.Result(); exited {
+			if m.updateRunning {
+				m.updateRunning = false
+				m.shellStatus = "update complete · Ctrl+] to close"
+				if err != nil {
+					m.shellStatus = "update failed · Ctrl+] to close"
+				}
+				server := m.updateServer
+				return m, func() tea.Msg { return updateEndedMsg{server: server, err: err} }
+			}
 			m.shellStatus = "exited · ctrl+] to close"
 			if err != nil {
 				m.shellStatus = err.Error() + " · ctrl+] to close"
@@ -219,6 +235,10 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.shellSelection = nil
 			if msg.String() == "ctrl+]" {
+				if m.updateRunning {
+					m.shellStatus = "update running · wait for completion"
+					return m, nil
+				}
 				m.closeShell()
 				m.resizeTableHeight()
 				return m, nil
@@ -351,15 +371,38 @@ func (m *app) updateConfirmation(msg tea.KeyPressMsg) tea.Cmd {
 	case "y", "Y":
 		target := *m.updateTarget
 		m.updateTarget = nil
-		process, err := update.Command(m.ctx, target, "latest")
+		process, err := m.updateCommand(m.ctx, target, "latest")
 		if err != nil {
 			m.message = err.Error()
 			return nil
 		}
 		m.notice = ""
-		return tea.ExecProcess(process, func(err error) tea.Msg {
-			return updateEndedMsg{server: target.Name, err: err}
-		})
+		m.noticeError = false
+		if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+			return tea.ExecProcess(process, func(err error) tea.Msg {
+				return updateEndedMsg{server: target.Name, err: err}
+			})
+		}
+		bounds := views.TerminalBounds(m.dashboardData())
+		if !bounds.Fits() {
+			m.message = "Terminal is too small to run the update inside Orbit"
+			return nil
+		}
+		session, err := shell.Start(process, bounds.Width, bounds.Height)
+		if err != nil {
+			m.message = err.Error()
+			return nil
+		}
+		m.shellSession = session
+		m.shellServer = target.Name
+		m.shellStatus = ""
+		m.shellBounds = bounds
+		m.shellUpdate = true
+		m.updateRunning = true
+		m.updateServer = target.Name
+		m.showHelp = false
+		m.message = ""
+		return waitShell(session)
 	}
 	return nil
 }
@@ -458,6 +501,8 @@ func (m *app) dashboardData() views.DashboardData {
 		NoticeError:    m.noticeError,
 		CanUpdate:      selected != nil && !m.loading && update.Validate(selected.Server, "latest") == nil,
 		ShellActive:    m.shellSession != nil,
+		ShellUpdate:    m.shellUpdate,
+		UpdateRunning:  m.updateRunning,
 		ShellServer:    m.shellServer,
 		ShellStatus:    m.shellStatus,
 	}
@@ -514,6 +559,9 @@ func (m *app) closeShell() {
 	m.shellServer = ""
 	m.shellStatus = ""
 	m.shellSelection = nil
+	m.shellUpdate = false
+	m.updateRunning = false
+	m.updateServer = ""
 }
 
 // Keep every row's six values, but hide secondary columns on smaller screens.
