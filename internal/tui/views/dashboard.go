@@ -96,8 +96,6 @@ func Render(data DashboardData) string {
 		metrics := data.Selected.Metrics.Data
 		summaryData := metrics
 		if detailWidth >= 56 && metrics.Swap != nil && metrics.Swap.TotalBytes == 0 && components.MetricAvailable(metrics, "swap") {
-			// No swap means no optional card or wide-screen status row, even
-			// when there is only room for the compact metric summary.
 			summaryData.Swap = nil
 		}
 		warnings := metricErrorWarnings(metrics.Errors, detailWidth)

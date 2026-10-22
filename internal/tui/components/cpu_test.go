@@ -63,6 +63,27 @@ func TestCoreGridKeepsLogicalOrderAndUnknownDistinct(t *testing.T) {
 	}
 }
 
+func TestCoreColorScale(t *testing.T) {
+	for _, test := range []struct {
+		usage float64
+		color string
+	}{
+		{usage: 0, color: "#30363d"},
+		{usage: 1, color: "#0e4429"},
+		{usage: 25, color: "#0e4429"},
+		{usage: 25.1, color: "#006d32"},
+		{usage: 50, color: "#006d32"},
+		{usage: 50.1, color: "#26a641"},
+		{usage: 75, color: "#26a641"},
+		{usage: 75.1, color: "#39d353"},
+		{usage: 100, color: "#39d353"},
+	} {
+		if got := coreShade(test.usage); got != test.color {
+			t.Errorf("coreShade(%g) = %q, want %q", test.usage, got, test.color)
+		}
+	}
+}
+
 func TestCPUDetailsHandleMissingAndInvalidValues(t *testing.T) {
 	if CPUDetails(client.MetricsData{}, 80) != "" {
 		t.Fatal("legacy CPU gained detail")

@@ -406,7 +406,7 @@ func (m *app) resizeTableHeight() {
 			if swap := components.SwapDetails(m.statuses[cursor].Metrics.Data, max(m.width-4, 1)); swap != "" {
 				reserved += lipgloss.Height(swap)
 				if m.width >= 60 {
-					reserved++ // spacing between the metric cards and swap
+					reserved++
 				}
 			}
 			if filesystems := components.FilesystemSummary(m.statuses[cursor].Metrics.Data, max(m.width-4, 1)); filesystems != "" {

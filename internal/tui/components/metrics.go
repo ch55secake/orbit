@@ -153,8 +153,6 @@ func SwapDetails(data client.MetricsData, width int) string {
 	label := styles.Label.Background(background).Render("Swap  ")
 	value := styles.Title.Background(background).Render(Percent(data.Swap.UsedPercent))
 	heading := label + value
-	// Remaining capacity is derived from the same used/total sample as the meter;
-	// optional or inconsistent free-byte readings must not contradict the bar.
 	capacity := client.FormatBytes(data.Swap.UsedBytes) + " / " + client.FormatBytes(data.Swap.TotalBytes) +
 		" used · " + client.FormatBytes(data.Swap.TotalBytes-data.Swap.UsedBytes) + " remaining"
 	return detailCard(width, heading,

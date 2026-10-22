@@ -35,7 +35,7 @@ func TestFilesystemSummaryPrioritizesFullMounts(t *testing.T) {
 		}
 		maxHeight := 4
 		if width >= 56 {
-			maxHeight = 6 // heading + two labeled meters + overflow count
+			maxHeight = 6
 			if strings.Count(plain, "█") == 0 || strings.Count(plain, "░") == 0 {
 				t.Fatalf("visible mounts have no usage meters: %q", plain)
 			}

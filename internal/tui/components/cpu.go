@@ -69,7 +69,7 @@ func coreContributionGraph(cores []*float64, width int) ([]string, int) {
 func coreContributionGraphWithBackground(cores []*float64, width int, background color.Color) ([]string, int) {
 	width = max(width, 1)
 	digitWidth := len(strconv.Itoa(max(len(cores)-1, 0)))
-	rowPrefixWidth := digitWidth + 2 // index and colon-space
+	rowPrefixWidth := digitWidth + 2
 	columns := max((width-rowPrefixWidth+1)/2, 1)
 	shown := min(len(cores), columns*2)
 	rows := make([]string, 0, 2)
@@ -104,35 +104,30 @@ func coreCell(value float64) string {
 }
 
 func coreCellBackground(value float64, background color.Color) string {
-	var shade string
-	switch {
-	case value == 0:
-		shade = "#30363d"
-	case value <= 25:
-		shade = "#0e4429"
-	case value <= 50:
-		shade = "#006d32"
-	case value <= 75:
-		shade = "#26a641"
-	default:
-		shade = "#39d353"
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(coreShade(value))).Background(background).Render("■")
+}
+
+func coreShade(value float64) string {
+	if value <= 0 {
+		return "#30363d"
 	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(shade)).Background(background).Render("■")
+	shades := [...]string{"#0e4429", "#006d32", "#26a641", "#39d353"}
+	index := max(min(int(math.Ceil(value/25))-1, len(shades)-1), 0)
+	return shades[index]
 }
 
 func coreAvailable(value *float64) bool { return value != nil && validPercent(*value) }
 
 func loadValue(value *float64) string {
-	if value == nil || math.IsNaN(*value) || math.IsInf(*value, 0) || *value < 0 {
+	if !validLoadSample(value) {
 		return "—"
 	}
-	// Load is not a percentage and may exceed 100; significant digits also keep
-	// very large valid samples from consuming hundreds of terminal columns.
+	// Load is not a percentage and may exceed 100; significant digits bound the
+	// width of large valid samples.
 	return strconv.FormatFloat(*value, 'g', 4, 64)
 }
 
-// Load is runnable work, not CPU utilization. Bars show load relative to the
-// logical core count; the raw values remain visible even above that capacity.
+// Load bars show runnable work relative to logical core count, not utilization.
 func loadMeters(load *client.LoadAverage, cores, width int, background color.Color) string {
 	values := []*float64{load.OneMinute, load.FiveMinutes, load.FifteenMinutes}
 	fallback := styles.Label.Background(background).Render("Load 1/5/15m: ") +
@@ -142,11 +137,11 @@ func loadMeters(load *client.LoadAverage, cores, width int, background color.Col
 	}
 	heading := fmt.Sprintf("Load/%d ", cores)
 	labels := []string{"1m", "5m", "15m"}
-	barWidth := width - lipgloss.Width(heading) - 4 // two spaces between three meters
+	barWidth := width - lipgloss.Width(heading) - 4
 	for i, value := range values {
 		barWidth -= lipgloss.Width(labels[i] + " " + loadValue(value) + " ")
-		if value != nil && *value > float64(cores) && !math.IsNaN(*value) && !math.IsInf(*value, 0) {
-			barWidth-- // overload indicator
+		if loadExceedsCores(value, cores) {
+			barWidth--
 		}
 	}
 	barWidth = min(barWidth/3, 8)
@@ -156,15 +151,27 @@ func loadMeters(load *client.LoadAverage, cores, width int, background color.Col
 	parts := make([]string, 0, len(values))
 	for i, value := range values {
 		label := styles.Label.Background(background).Render(labels[i] + " ")
-		meter := usageBar(math.NaN(), barWidth, background)
-		if value != nil && !math.IsNaN(*value) && !math.IsInf(*value, 0) && *value >= 0 {
-			meter = usageBar(min(*value/float64(cores), 1)*100, barWidth, background)
-		}
+		meter := usageBar(loadPercent(value, cores), barWidth, background)
 		number := loadValue(value)
-		if value != nil && *value > float64(cores) && !math.IsNaN(*value) && !math.IsInf(*value, 0) {
+		if loadExceedsCores(value, cores) {
 			number += "↑"
 		}
 		parts = append(parts, label+meter+styles.Value.Background(background).Render(" "+number))
 	}
 	return styles.Label.Background(background).Render(heading) + strings.Join(parts, styles.Label.Background(background).Render("  "))
+}
+
+func validLoadSample(value *float64) bool {
+	return value != nil && !math.IsNaN(*value) && !math.IsInf(*value, 0) && *value >= 0
+}
+
+func loadExceedsCores(value *float64, cores int) bool {
+	return validLoadSample(value) && *value > float64(cores)
+}
+
+func loadPercent(value *float64, cores int) float64 {
+	if cores <= 0 || !validLoadSample(value) {
+		return math.NaN()
+	}
+	return min(*value/float64(cores), 1) * 100
 }
