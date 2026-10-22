@@ -54,7 +54,7 @@ func TestCPUDetailsFitDashboard(t *testing.T) {
 				if state == "legacy" && (strings.Contains(plain, "Cores:") || strings.Contains(plain, "Load 1/5/15m")) {
 					t.Fatal("legacy response gained CPU detail")
 				}
-				if state != "legacy" && state != "cores" && state != "failed" && !strings.Contains(plain, "Load 1/5/15m") {
+				if state != "legacy" && state != "cores" && state != "failed" && !strings.Contains(plain, "Load 1/5/15m") && !strings.Contains(plain, "Load/") {
 					t.Fatal("load averages missing")
 				}
 				if state != "legacy" && state != "load" && state != "failed" && (!strings.Contains(plain, "Cores") || !strings.Contains(plain, "0:") || !strings.Contains(plain, "■")) {

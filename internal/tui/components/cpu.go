@@ -38,7 +38,7 @@ func CPUDetails(data client.MetricsData, width int) string {
 	}
 	var lines []string
 	if load := cpu.LoadAverage; load != nil {
-		lines = append(lines, styles.Label.Background(background).Render("Load 1/5/15m: ")+styles.Value.Background(background).Render(fmt.Sprintf("%s / %s / %s", loadValue(load.OneMinute), loadValue(load.FiveMinutes), loadValue(load.FifteenMinutes))))
+		lines = append(lines, loadMeters(load, cpu.LogicalCores, contentWidth, background))
 	}
 	if cores := cpu.PerCoreUsagePercent; len(cores) > 0 {
 		graph, shown := coreContributionGraphWithBackground(cores, contentWidth, background)
@@ -129,4 +129,42 @@ func loadValue(value *float64) string {
 	// Load is not a percentage and may exceed 100; significant digits also keep
 	// very large valid samples from consuming hundreds of terminal columns.
 	return strconv.FormatFloat(*value, 'g', 4, 64)
+}
+
+// Load is runnable work, not CPU utilization. Bars show load relative to the
+// logical core count; the raw values remain visible even above that capacity.
+func loadMeters(load *client.LoadAverage, cores, width int, background color.Color) string {
+	values := []*float64{load.OneMinute, load.FiveMinutes, load.FifteenMinutes}
+	fallback := styles.Label.Background(background).Render("Load 1/5/15m: ") +
+		styles.Value.Background(background).Render(fmt.Sprintf("%s / %s / %s", loadValue(values[0]), loadValue(values[1]), loadValue(values[2])))
+	if cores <= 0 {
+		return fallback
+	}
+	heading := fmt.Sprintf("Load/%d ", cores)
+	labels := []string{"1m", "5m", "15m"}
+	barWidth := width - lipgloss.Width(heading) - 4 // two spaces between three meters
+	for i, value := range values {
+		barWidth -= lipgloss.Width(labels[i] + " " + loadValue(value) + " ")
+		if value != nil && *value > float64(cores) && !math.IsNaN(*value) && !math.IsInf(*value, 0) {
+			barWidth-- // overload indicator
+		}
+	}
+	barWidth = min(barWidth/3, 8)
+	if barWidth < 2 {
+		return fallback
+	}
+	parts := make([]string, 0, len(values))
+	for i, value := range values {
+		label := styles.Label.Background(background).Render(labels[i] + " ")
+		meter := usageBar(math.NaN(), barWidth, background)
+		if value != nil && !math.IsNaN(*value) && !math.IsInf(*value, 0) && *value >= 0 {
+			meter = usageBar(min(*value/float64(cores), 1)*100, barWidth, background)
+		}
+		number := loadValue(value)
+		if value != nil && *value > float64(cores) && !math.IsNaN(*value) && !math.IsInf(*value, 0) {
+			number += "↑"
+		}
+		parts = append(parts, label+meter+styles.Value.Background(background).Render(" "+number))
+	}
+	return styles.Label.Background(background).Render(heading) + strings.Join(parts, styles.Label.Background(background).Render("  "))
 }

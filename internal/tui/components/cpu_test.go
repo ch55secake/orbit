@@ -17,10 +17,19 @@ func TestCPUDetailsRenderCoreContributionGraphAndLoadUnits(t *testing.T) {
 	for _, width := range []int{24, 40, 80} {
 		view := CPUDetails(data, width)
 		plain := ansi.Strip(view)
-		for _, want := range []string{"Load 1/5/15m", "0.5", "1.25", "250.5", "Cores", "0:"} {
+		for _, want := range []string{"0.5", "1.25", "250.5", "Cores", "0:"} {
 			if !strings.Contains(plain, want) {
 				t.Fatalf("missing %q: %q", want, plain)
 			}
+		}
+		if width >= 56 {
+			for _, want := range []string{"Load/4", "1m", "5m", "15m", "250.5↑", "█", "░"} {
+				if !strings.Contains(strings.Split(plain, "\n")[0], want) {
+					t.Fatalf("load meter missing %q: %q", want, plain)
+				}
+			}
+		} else if !strings.Contains(plain, "Load 1/5/15m") {
+			t.Fatalf("compact view lost load labels: %q", plain)
 		}
 		if strings.Count(plain, "■") < 4 {
 			t.Fatalf("core utilization graph missing: %q", plain)
@@ -101,6 +110,7 @@ func TestManyCPUCoreSamplesStayBounded(t *testing.T) {
 
 func TestCoreLegendAndGridKeepCardBackground(t *testing.T) {
 	data := client.MetricsData{CPU: client.CPU{
+		LogicalCores:        4,
 		PerCoreUsagePercent: []*float64{cpuSample(0), cpuSample(20), cpuSample(40), cpuSample(60)},
 		LoadAverage:         &client.LoadAverage{OneMinute: cpuSample(1), FiveMinutes: cpuSample(2), FifteenMinutes: cpuSample(3)},
 	}}
@@ -110,5 +120,28 @@ func TestCoreLegendAndGridKeepCardBackground(t *testing.T) {
 	}
 	for _, row := range rows {
 		assertCardTextBackground(t, row)
+	}
+}
+
+func TestLoadMetersHandleMissingCoresInvalidSamplesAndOverload(t *testing.T) {
+	load := &client.LoadAverage{OneMinute: nil, FiveMinutes: cpuSample(0), FifteenMinutes: cpuSample(8)}
+	for _, width := range []int{56, 80} {
+		view := CPUDetails(client.MetricsData{CPU: client.CPU{LogicalCores: 4, LoadAverage: load}}, width)
+		rows := strings.Split(ansi.Strip(view), "\n")
+		if len(rows) != 1 || lipgloss.Width(view) != width {
+			t.Fatalf("load meter wrapped at width %d: %q", width, rows)
+		}
+		for _, want := range []string{"1m —", "5m", "15m", "8↑"} {
+			if !strings.Contains(rows[0], want) {
+				t.Fatalf("load meter missing %q at width %d: %q", want, width, rows[0])
+			}
+		}
+		if strings.Count(rows[0], "—") != 2 || strings.Contains(rows[0], "NaN") {
+			t.Fatalf("missing load looked like an idle sample: %q", rows[0])
+		}
+	}
+	unknown := ansi.Strip(CPUDetails(client.MetricsData{CPU: client.CPU{LoadAverage: load}}, 80))
+	if !strings.Contains(unknown, "Load 1/5/15m: — / 0 / 8") || strings.Contains(unknown, "█") {
+		t.Fatalf("unknown core capacity produced a normalized meter: %q", unknown)
 	}
 }
