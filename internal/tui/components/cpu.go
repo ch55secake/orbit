@@ -13,8 +13,8 @@ import (
 )
 
 // CPUDetails is additive: it never substitutes load averages for CPU usage.
-// Array indices identify logical cores, even when the busiest samples are shown
-// first. Null and invalid samples must not appear as idle cores or zero load.
+// Squares follow logical core index order, not time; missing samples never look
+// like idle cores. The aggregate CPU meter remains in the dashboard cards.
 func CPUDetails(data client.MetricsData, width int) string {
 	cpu := data.CPU
 	if len(cpu.PerCoreUsagePercent) == 0 && cpu.LoadAverage == nil {
@@ -29,21 +29,15 @@ func CPUDetails(data client.MetricsData, width int) string {
 	}
 	if cores := cpu.PerCoreUsagePercent; len(cores) > 0 {
 		graph, shown := coreContributionGraph(cores, width)
-		var legend string
-		if width < 56 {
-			legend = fmt.Sprintf("Cores %d/%d", shown, len(cores))
-			if shown < len(cores) {
-				legend += fmt.Sprintf(" (+%d)", len(cores)-shown)
-			}
-		} else {
-			legend = "Cores · low " + coreCell(0) + " " + coreCell(35) + " " + coreCell(70) + " " + coreCell(100) + " high"
-			if shown < len(cores) {
-				legend += fmt.Sprintf(" · %d/%d (+%d)", shown, len(cores), len(cores)-shown)
-			} else {
-				legend += fmt.Sprintf(" · %d cores", len(cores))
-			}
+		legend := fmt.Sprintf("Cores · %d/%d", shown, len(cores))
+		if shown < len(cores) {
+			legend += fmt.Sprintf(" (+%d)", len(cores)-shown)
 		}
-		lines = append(lines, ansi.Wrap(legend, max(width, 1), ""))
+		scale := " · 0% " + coreCell(0) + " " + coreCell(35) + " " + coreCell(70) + " " + coreCell(100) + " 100%"
+		if lipgloss.Width(legend+scale) <= width {
+			legend += scale
+		}
+		lines = append(lines, legend)
 		lines = append(lines, graph...)
 	}
 	return ansi.Wrap(strings.Join(lines, "\n"), max(width, 1), "")

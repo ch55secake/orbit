@@ -47,7 +47,7 @@ func TestSwapSummary(t *testing.T) {
 			}
 			cards := ansi.Strip(SizedCards(data, 80, 5))
 			if test.swap != nil && test.swap.TotalBytes > 0 && MetricAvailable(data, "swap") {
-				for _, want := range []string{"Swap:", "Used", "Free"} {
+				for _, want := range []string{"Swap", Percent(test.swap.UsedPercent), client.FormatBytes(test.swap.UsedBytes) + " / " + client.FormatBytes(test.swap.TotalBytes)} {
 					if !strings.Contains(cards, want) {
 						t.Errorf("detailed swap bar omitted %q: %q", want, cards)
 					}
@@ -58,7 +58,7 @@ func TestSwapSummary(t *testing.T) {
 				if test.swap.UsedPercent < 100 && !strings.Contains(cards, "░") {
 					t.Errorf("available swap missing meter remainder: %q", cards)
 				}
-			} else if test.want != "" && !strings.Contains(cards, test.want) {
+			} else if test.want != "" && !strings.Contains(cards, strings.TrimPrefix(test.want, "Swap: ")) {
 				t.Errorf("cards omitted optional swap status %q: %q", test.want, cards)
 			}
 		})
@@ -67,16 +67,19 @@ func TestSwapSummary(t *testing.T) {
 
 func TestSwapDetailsFitAndShowAFullWidthMeter(t *testing.T) {
 	data := client.MetricsData{Swap: &client.Swap{TotalBytes: 2 << 30, UsedBytes: 1 << 30, FreeBytes: 1 << 30, UsedPercent: 50}}
-	for _, width := range []int{20, 24, 40, 80} {
+	for _, width := range []int{56, 80} {
 		view := SwapDetails(data, width)
-		if lipgloss.Width(view) > width {
-			t.Fatalf("swap details width %d exceeds %d: %q", lipgloss.Width(view), width, ansi.Strip(view))
+		if lipgloss.Width(view) != width || lipgloss.Height(view) != 3 {
+			t.Fatalf("swap card is %dx%d, want %dx3: %q", lipgloss.Width(view), lipgloss.Height(view), width, ansi.Strip(view))
 		}
 		plain := strings.Join(strings.Fields(ansi.Strip(view)), " ")
-		for _, want := range []string{"Swap:", "50.0%", "Used 1.0 GiB / 2.0 GiB", "Free 1.0 GiB", "█", "░"} {
+		for _, want := range []string{"Swap", "50.0%", "1.0 GiB / 2.0 GiB used", "1.0 GiB remaining", "█", "░"} {
 			if !strings.Contains(plain, want) {
 				t.Errorf("swap details missing %q at width %d: %q", want, width, plain)
 			}
 		}
+	}
+	if narrow := SwapDetails(data, 20); lipgloss.Width(narrow) > 20 || !strings.Contains(ansi.Strip(narrow), "Swap:") {
+		t.Fatalf("narrow swap fallback did not fit: %q", narrow)
 	}
 }

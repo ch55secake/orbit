@@ -25,7 +25,7 @@ func TestCPUDetailsRenderCoreContributionGraphAndLoadUnits(t *testing.T) {
 		if strings.Count(plain, "■") < 4 {
 			t.Fatalf("core utilization graph missing: %q", plain)
 		}
-		if width >= 56 && (!strings.Contains(plain, "low") || !strings.Contains(plain, "high")) {
+		if width >= 56 && (!strings.Contains(plain, "0%") || !strings.Contains(plain, "100%")) {
 			t.Fatalf("wide core graph is missing its usage legend: %q", plain)
 		}
 		if lipgloss.Width(view) > width {
@@ -34,6 +34,20 @@ func TestCPUDetailsRenderCoreContributionGraphAndLoadUnits(t *testing.T) {
 	}
 	if *data.CPU.PerCoreUsagePercent[0] != 0 {
 		t.Fatal("rendering reordered source CPU samples")
+	}
+}
+
+func TestCoreGridKeepsLogicalOrderAndUnknownDistinct(t *testing.T) {
+	cores := []*float64{cpuSample(0), cpuSample(25), cpuSample(50), cpuSample(75), cpuSample(100), nil}
+	rows, shown := coreContributionGraph(cores, 11)
+	if shown != len(cores) || len(rows) != 2 {
+		t.Fatalf("core grid is not a two-row index-ordered graph: %#v (%d shown)", rows, shown)
+	}
+	if got := ansi.Strip(strings.Join(rows, "\n")); !strings.Contains(got, "0: ■ ■ ■ ■") || !strings.Contains(got, "4: ■ ?") {
+		t.Fatalf("core grid reordered or hid a missing sample: %q", got)
+	}
+	if coreCell(0) == coreCell(100) || coreCell(25) == coreCell(75) || coreCellValue(nil) == coreCell(0) {
+		t.Fatal("idle, busy, and missing cores have indistinguishable tiles")
 	}
 }
 
