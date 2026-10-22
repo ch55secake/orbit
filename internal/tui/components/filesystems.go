@@ -77,6 +77,9 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 		}
 		path = ansi.Truncate(path, max(contentWidth-ansi.StringWidth(usage)-2, 1), "…")
 		lines = append(lines, styles.Value.Render(ansi.Truncate(path+"  "+usage, contentWidth, "…")))
+		if card && filesystemAvailable(filesystem) {
+			lines = append(lines, usageBar(filesystem.UsedPercent, min(contentWidth, 24), styles.Card.GetBackground()))
+		}
 	}
 	if len(filesystems) > limit {
 		remaining := len(filesystems) - limit

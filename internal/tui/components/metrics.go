@@ -133,8 +133,8 @@ func SwapSummary(data client.MetricsData) string {
 	return Metric("Swap", fmt.Sprintf("%s / %s (%s)", client.FormatBytes(data.Swap.UsedBytes), client.FormatBytes(data.Swap.TotalBytes), Percent(data.Swap.UsedPercent)))
 }
 
-// SwapDetails renders an optional full-width card alongside the other meters.
-// Legacy agents remain absent rather than appearing as zero-capacity hosts.
+// SwapDetails renders a meter only for configured, valid swap. Disabled and
+// unavailable swap keep a plain status line instead of an empty colored card.
 func SwapDetails(data client.MetricsData, width int) string {
 	if data.Swap == nil && !metricFailed(data, "swap") {
 		return ""
@@ -142,14 +142,11 @@ func SwapDetails(data client.MetricsData, width int) string {
 	if width < 56 {
 		return ansi.Wrap(SwapSummary(data), max(width, 1), "")
 	}
+	if !MetricAvailable(data, "swap") || data.Swap.TotalBytes == 0 {
+		return ansi.Wrap(SwapSummary(data), width, "")
+	}
 	background := styles.Card.GetBackground()
 	label := styles.Label.Background(background).Render("Swap")
-	if !MetricAvailable(data, "swap") {
-		return detailCard(width, label+"  "+styles.Warn.Background(background).Render("— unavailable"))
-	}
-	if data.Swap.TotalBytes == 0 {
-		return detailCard(width, label+"  "+styles.Subtitle.Background(background).Render("not configured"))
-	}
 	value := styles.Title.Background(background).Render(Percent(data.Swap.UsedPercent))
 	heading := label + "  " + value
 	// Remaining capacity is derived from the same used/total sample as the meter;

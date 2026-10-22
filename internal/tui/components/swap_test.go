@@ -45,6 +45,17 @@ func TestSwapSummary(t *testing.T) {
 			if test.want != "" && !strings.Contains(ansi.Strip(Summary(data)), test.want) {
 				t.Fatal("compact summary omitted optional swap")
 			}
+			if test.want != "" && (test.swap == nil || test.swap.TotalBytes == 0 || !MetricAvailable(data, "swap")) {
+				plain := SwapDetails(data, 80)
+				if strings.Contains(plain, "\x1b[48;") || lipgloss.Height(plain) != 1 || ansi.Strip(plain) != test.want {
+					t.Fatalf("unconfigured/failed swap created a background card: %q", plain)
+				}
+				for _, row := range strings.Split(SizedCards(data, 80, 5), "\n") {
+					if strings.Contains(ansi.Strip(row), test.want) && strings.Contains(row, "\x1b[48;") {
+						t.Fatalf("unconfigured/failed swap text inherited the card background: %q", row)
+					}
+				}
+			}
 			cards := ansi.Strip(SizedCards(data, 80, 5))
 			if test.swap != nil && test.swap.TotalBytes > 0 && MetricAvailable(data, "swap") {
 				for _, want := range []string{"Swap", Percent(test.swap.UsedPercent), client.FormatBytes(test.swap.UsedBytes) + " / " + client.FormatBytes(test.swap.TotalBytes)} {
