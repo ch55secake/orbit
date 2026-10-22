@@ -37,6 +37,8 @@ type DashboardData struct {
 	NoticeError    bool
 	CanUpdate      bool
 	ShellActive    bool
+	ShellUpdate    bool
+	UpdateRunning  bool
 	ShellServer    string
 	ShellContent   string
 	ShellStatus    string
@@ -399,7 +401,14 @@ func fleetSummary(data DashboardData) string {
 
 func renderMenu(data DashboardData) string {
 	if data.ShellActive {
-		hints := []string{menuHint("ctrl+]", "close SSH"), menuHint("drag", "select text"), menuHint("ctrl+y", "copy"), menuHint("esc", "clear")}
+		if data.UpdateRunning {
+			return fitMenuHints([]string{menuHint("SSH/sudo prompt", "type here"), menuHint("ctrl+c", "interrupt update")}, data.Width)
+		}
+		closeLabel := "close SSH"
+		if data.ShellUpdate {
+			closeLabel = "close update details"
+		}
+		hints := []string{menuHint("ctrl+]", closeLabel), menuHint("drag", "select text"), menuHint("ctrl+y", "copy"), menuHint("esc", "clear")}
 		return fitMenuHints(hints, data.Width)
 	}
 	if data.PasswordPrompt {
