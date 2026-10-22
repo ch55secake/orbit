@@ -25,7 +25,8 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 	if len(data.Filesystems) == 0 {
 		if failed {
 			if card {
-				return detailCard(width, styles.Label.Render("FILESYSTEMS"), styles.Warn.Render("— unavailable"))
+				background := styles.Card.GetBackground()
+				return detailCard(width, styles.Label.Background(background).Render("FILESYSTEMS"), styles.Warn.Background(background).Render("— unavailable"))
 			}
 			return styles.Label.Render("FILESYSTEMS") + "\n" + styles.Warn.Render("— unavailable")
 		}
@@ -45,6 +46,9 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 		}
 	}
 	lines := []string{styles.Label.Render(ansi.Truncate(heading, contentWidth, "…"))}
+	if card {
+		lines[0] = styles.Label.Background(styles.Card.GetBackground()).Render(ansi.Truncate(heading, contentWidth, "…"))
+	}
 	const limit = 2
 	for _, filesystem := range filesystems[:min(len(filesystems), limit)] {
 		path := filesystemPath(filesystem.MountPoint)
@@ -56,7 +60,11 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 			}
 		}
 		path = ansi.Truncate(path, max(contentWidth-ansi.StringWidth(usage)-2, 1), "…")
-		lines = append(lines, styles.Value.Render(ansi.Truncate(path+"  "+usage, contentWidth, "…")))
+		valueStyle := styles.Value
+		if card {
+			valueStyle = valueStyle.Background(styles.Card.GetBackground())
+		}
+		lines = append(lines, valueStyle.Render(ansi.Truncate(path+"  "+usage, contentWidth, "…")))
 		if card && filesystemAvailable(filesystem) {
 			lines = append(lines, usageBar(filesystem.UsedPercent, min(contentWidth, 24), styles.Card.GetBackground()))
 		}
@@ -67,7 +75,11 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 		if remaining == 1 {
 			label = "mount"
 		}
-		lines = append(lines, styles.Subtitle.Render(ansi.Truncate(fmt.Sprintf("+%d more %s", remaining, label), contentWidth, "…")))
+		moreStyle := styles.Subtitle
+		if card {
+			moreStyle = moreStyle.Background(styles.Card.GetBackground())
+		}
+		lines = append(lines, moreStyle.Render(ansi.Truncate(fmt.Sprintf("+%d more %s", remaining, label), contentWidth, "…")))
 	}
 	if card {
 		return detailCard(width, lines...)

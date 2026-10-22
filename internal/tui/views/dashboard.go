@@ -187,6 +187,23 @@ func Render(data DashboardData) string {
 			}
 			cardHeight = min(cardHeight, (available-extraHeight()-1)/2)
 		}
+		if cardHeight >= 3 && terminalWidth < 110 {
+			remaining := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - lipgloss.Height(data.Table) - 1 - len(warnings)
+			for _, section := range []string{telemetry, cpuDetails, filesystems, interfaces} {
+				if section != "" {
+					remaining -= lipgloss.Height(section) + 1
+				}
+			}
+			if data.Message != "" {
+				remaining -= 2
+			}
+			if data.Notice != "" {
+				remaining -= lipgloss.Height(ansi.Wrap(data.Notice, detailWidth, "")) + 1
+			}
+			if lipgloss.Height(components.SizedCards(metrics, detailWidth, cardHeight)) > remaining {
+				cardHeight = 0
+			}
+		}
 		if cardHeight < 3 {
 			lines = append(lines, components.Summary(summaryData))
 		} else {

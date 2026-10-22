@@ -43,3 +43,37 @@ func TestCombinedOptionalCardsStayWithinDashboard(t *testing.T) {
 		}
 	}
 }
+
+func TestCrowdedDashboardSeparatesSwapAndKeepsCoreLegend(t *testing.T) {
+	for _, size := range []tea.WindowSizeMsg{{Width: 80, Height: 32}, {Width: 160, Height: 50}} {
+		model, _ := testApp([]config.Server{testServer("alpha"), testServer("beta")})
+		metrics := testMetrics(26)
+		metrics.Data.Swap = &client.Swap{TotalBytes: 4 << 30, UsedBytes: 58 << 20, UsedPercent: 1.4}
+		for range 12 {
+			metrics.Data.CPU.PerCoreUsagePercent = append(metrics.Data.CPU.PerCoreUsagePercent, cpuSample(26))
+		}
+		metrics.Data.Filesystems = []client.Filesystem{
+			{MountPoint: "/", TotalBytes: 100, UsedBytes: 73, UsedPercent: 73},
+			{MountPoint: "/boot", TotalBytes: 100, UsedBytes: 11, UsedPercent: 11},
+		}
+		model.statuses[0].Metrics = &metrics
+		model.Update(size)
+		view := model.View().Content
+		if lipgloss.Width(view) > size.Width || lipgloss.Height(view) > size.Height {
+			t.Fatalf("crowded layout overflowed %dx%d: %dx%d", size.Width, size.Height, lipgloss.Width(view), lipgloss.Height(view))
+		}
+		plain := strings.Split(ansi.Strip(view), "\n")
+		seenSwapCard := false
+		for i, row := range plain {
+			if strings.Contains(row, "Swap  1.4%") {
+				seenSwapCard = true
+				if i == 0 || strings.TrimSpace(plain[i-1]) != "" {
+					t.Fatalf("swap touches disk/uptime card at %dx%d: %q", size.Width, size.Height, plain)
+				}
+			}
+		}
+		if size.Width == 160 && !seenSwapCard {
+			t.Fatal("large dashboard did not render the configured swap card")
+		}
+	}
+}

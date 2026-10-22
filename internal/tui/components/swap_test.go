@@ -88,6 +88,9 @@ func TestSwapDetailsFitAndShowAFullWidthMeter(t *testing.T) {
 			t.Fatalf("swap card is %dx%d, want %dx3: %q", lipgloss.Width(view), lipgloss.Height(view), width, ansi.Strip(view))
 		}
 		plain := strings.Join(strings.Fields(ansi.Strip(view)), " ")
+		for _, row := range strings.Split(view, "\n") {
+			assertCardTextBackground(t, row)
+		}
 		for _, want := range []string{"Swap", "50.0%", "1.0 GiB / 2.0 GiB used", "1.0 GiB remaining", "█", "░"} {
 			if !strings.Contains(plain, want) {
 				t.Errorf("swap details missing %q at width %d: %q", want, width, plain)
@@ -131,12 +134,9 @@ func TestSwapCardSpacingOnlyWhenMeterIsRendered(t *testing.T) {
 	for _, height := range []int{3, 5} {
 		withSwap := strings.Split(ansi.Strip(SizedCards(data, 80, height)), "\n")
 		baseHeight := height*2 + 1
-		gap := 0
-		if height >= 5 {
-			gap = 1
-			if strings.TrimSpace(withSwap[baseHeight]) != "" {
-				t.Fatal("expanded swap card has no visual separation")
-			}
+		gap := 1
+		if strings.TrimSpace(withSwap[baseHeight]) != "" {
+			t.Fatal("swap card has no visual separation")
 		}
 		if len(withSwap) != baseHeight+gap+3 {
 			t.Fatalf("configured swap has unexpected card spacing: %d rows", len(withSwap))

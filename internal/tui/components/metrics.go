@@ -88,11 +88,7 @@ func SizedCards(data client.MetricsData, width, height int) string {
 		),
 	)
 	if swap := SwapDetails(data, width); swap != "" {
-		if height >= 5 {
-			cards = lipgloss.JoinVertical(lipgloss.Left, cards, "", swap)
-		} else {
-			cards = lipgloss.JoinVertical(lipgloss.Left, cards, swap)
-		}
+		cards = lipgloss.JoinVertical(lipgloss.Left, cards, "", swap)
 	}
 	return cards
 }
@@ -154,9 +150,9 @@ func SwapDetails(data client.MetricsData, width int) string {
 		return ""
 	}
 	background := styles.Card.GetBackground()
-	label := styles.Label.Background(background).Render("Swap")
+	label := styles.Label.Background(background).Render("Swap  ")
 	value := styles.Title.Background(background).Render(Percent(data.Swap.UsedPercent))
-	heading := label + "  " + value
+	heading := label + value
 	// Remaining capacity is derived from the same used/total sample as the meter;
 	// optional or inconsistent free-byte readings must not contradict the bar.
 	capacity := client.FormatBytes(data.Swap.UsedBytes) + " / " + client.FormatBytes(data.Swap.TotalBytes) +

@@ -2,6 +2,7 @@ package components
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"strconv"
 	"strings"
@@ -25,23 +26,28 @@ func CPUDetails(data client.MetricsData, width int) string {
 	if card {
 		contentWidth -= 2
 	}
+	var background color.Color
+	if card {
+		background = styles.Card.GetBackground()
+	}
 	if metricFailed(data, "cpu") {
 		if card {
-			return detailCard(width, styles.Label.Render("CORES"), styles.Warn.Render("— unavailable"))
+			return detailCard(width, styles.Label.Background(background).Render("CORES"), styles.Warn.Background(background).Render("— unavailable"))
 		}
 		return ansi.Wrap(Metric("CPU detail", "— unavailable"), max(width, 1), "")
 	}
 	var lines []string
 	if load := cpu.LoadAverage; load != nil {
-		lines = append(lines, Metric("Load 1/5/15m", fmt.Sprintf("%s / %s / %s", loadValue(load.OneMinute), loadValue(load.FiveMinutes), loadValue(load.FifteenMinutes))))
+		lines = append(lines, styles.Label.Background(background).Render("Load 1/5/15m: ")+styles.Value.Background(background).Render(fmt.Sprintf("%s / %s / %s", loadValue(load.OneMinute), loadValue(load.FiveMinutes), loadValue(load.FifteenMinutes))))
 	}
 	if cores := cpu.PerCoreUsagePercent; len(cores) > 0 {
-		graph, shown := coreContributionGraph(cores, contentWidth)
-		legend := styles.Label.Render("Cores") + fmt.Sprintf(" · %d/%d", shown, len(cores))
+		graph, shown := coreContributionGraphWithBackground(cores, contentWidth, background)
+		legend := styles.Label.Background(background).Render("Cores") + styles.Value.Background(background).Render(fmt.Sprintf(" · %d/%d", shown, len(cores)))
 		if shown < len(cores) {
-			legend += fmt.Sprintf(" (+%d)", len(cores)-shown)
+			legend += styles.Subtitle.Background(background).Render(fmt.Sprintf(" (+%d)", len(cores)-shown))
 		}
-		scale := " · 0% " + coreCell(0) + " " + coreCell(35) + " " + coreCell(70) + " " + coreCell(100) + " 100%"
+		spacer := styles.Label.Background(background)
+		scale := spacer.Render(" · 0% ") + coreCellBackground(0, background) + spacer.Render(" ") + coreCellBackground(35, background) + spacer.Render(" ") + coreCellBackground(70, background) + spacer.Render(" ") + coreCellBackground(100, background) + spacer.Render(" 100%")
 		if lipgloss.Width(legend+scale) <= contentWidth {
 			legend += scale
 		}
@@ -57,6 +63,10 @@ func CPUDetails(data client.MetricsData, width int) string {
 // coreContributionGraph maps cores in logical index order to a compact,
 // two-row heatmap. The row prefixes make each square addressable as a core ID.
 func coreContributionGraph(cores []*float64, width int) ([]string, int) {
+	return coreContributionGraphWithBackground(cores, width, nil)
+}
+
+func coreContributionGraphWithBackground(cores []*float64, width int, background color.Color) ([]string, int) {
 	width = max(width, 1)
 	digitWidth := len(strconv.Itoa(max(len(cores)-1, 0)))
 	rowPrefixWidth := digitWidth + 2 // index and colon-space
@@ -66,12 +76,12 @@ func coreContributionGraph(cores []*float64, width int) ([]string, int) {
 	for start := 0; start < shown; start += columns {
 		end := min(start+columns, shown)
 		var row strings.Builder
-		fmt.Fprintf(&row, "%0*d: ", digitWidth, start)
+		row.WriteString(styles.Label.Background(background).Render(fmt.Sprintf("%0*d: ", digitWidth, start)))
 		for index := start; index < end; index++ {
 			if index > start {
-				row.WriteByte(' ')
+				row.WriteString(styles.Label.Background(background).Render(" "))
 			}
-			row.WriteString(coreCellValue(cores[index]))
+			row.WriteString(coreCellValueBackground(cores[index], background))
 		}
 		rows = append(rows, row.String())
 	}
@@ -79,13 +89,21 @@ func coreContributionGraph(cores []*float64, width int) ([]string, int) {
 }
 
 func coreCellValue(value *float64) string {
+	return coreCellValueBackground(value, nil)
+}
+
+func coreCellValueBackground(value *float64, background color.Color) string {
 	if !coreAvailable(value) {
-		return styles.Subtitle.Render("?")
+		return styles.Subtitle.Background(background).Render("?")
 	}
-	return coreCell(*value)
+	return coreCellBackground(*value, background)
 }
 
 func coreCell(value float64) string {
+	return coreCellBackground(value, nil)
+}
+
+func coreCellBackground(value float64, background color.Color) string {
 	var shade string
 	switch {
 	case value == 0:
@@ -99,7 +117,7 @@ func coreCell(value float64) string {
 	default:
 		shade = "#39d353"
 	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(shade)).Render("■")
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(shade)).Background(background).Render("■")
 }
 
 func coreAvailable(value *float64) bool { return value != nil && validPercent(*value) }

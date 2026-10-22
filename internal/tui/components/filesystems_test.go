@@ -71,6 +71,13 @@ func TestFailedMountNeverGetsAnIdleMeter(t *testing.T) {
 	}
 }
 
+func TestFilesystemCardKeepsTextBackground(t *testing.T) {
+	data := client.MetricsData{Filesystems: []client.Filesystem{{MountPoint: "/", TotalBytes: 100, UsedBytes: 50, UsedPercent: 50}}}
+	for _, row := range strings.Split(FilesystemSummary(data, 80), "\n") {
+		assertCardTextBackground(t, row)
+	}
+}
+
 func TestCompactFilesystemKeepsBusiestMountMeterWithoutLeakingPathStyles(t *testing.T) {
 	data := client.MetricsData{Filesystems: []client.Filesystem{
 		{MountPoint: "/", TotalBytes: 100, UsedBytes: 25, UsedPercent: 25},

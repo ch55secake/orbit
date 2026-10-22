@@ -98,3 +98,17 @@ func TestManyCPUCoreSamplesStayBounded(t *testing.T) {
 		t.Fatal("large load sample unbounded")
 	}
 }
+
+func TestCoreLegendAndGridKeepCardBackground(t *testing.T) {
+	data := client.MetricsData{CPU: client.CPU{
+		PerCoreUsagePercent: []*float64{cpuSample(0), cpuSample(20), cpuSample(40), cpuSample(60)},
+		LoadAverage:         &client.LoadAverage{OneMinute: cpuSample(1), FiveMinutes: cpuSample(2), FifteenMinutes: cpuSample(3)},
+	}}
+	rows := strings.Split(CPUDetails(data, 80), "\n")
+	if len(rows) != 3 {
+		t.Fatalf("unexpected core detail rows: %q", rows)
+	}
+	for _, row := range rows {
+		assertCardTextBackground(t, row)
+	}
+}
