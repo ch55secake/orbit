@@ -33,12 +33,66 @@ func TestFilesystemSummaryPrioritizesFullMounts(t *testing.T) {
 		if width == 80 && !strings.Contains(plain, "1000 B / 1.0 KiB") {
 			t.Fatal("wide layout omitted used/total capacity")
 		}
-		if lipgloss.Width(view) > width || lipgloss.Height(view) > 4 {
+		maxHeight := 4
+		if width >= 56 {
+			maxHeight = 6
+			if strings.Count(plain, "█") == 0 || strings.Count(plain, "░") == 0 {
+				t.Fatalf("visible mounts have no usage meters: %q", plain)
+			}
+		}
+		if lipgloss.Width(view) > width || lipgloss.Height(view) > maxHeight {
 			t.Fatal("mount list not bounded")
+		}
+		if width == 80 && lipgloss.Width(view) != width {
+			t.Fatal("filesystem list does not fill its own detail card")
+		}
+		if width == 80 {
+			rows := strings.Split(plain, "\n")
+			for _, barIndex := range []int{2, 4} {
+				if !strings.Contains(rows[barIndex], "█") || (!strings.Contains(rows[barIndex], "░") && !strings.ContainsAny(rows[barIndex], "▏▎▍▌▋▊▉")) {
+					t.Fatalf("mount %d has no bounded usage meter: %q", barIndex/2, rows)
+				}
+			}
 		}
 	}
 	if !reflect.DeepEqual(data.Filesystems, wantOrder) {
 		t.Fatal("rendering mutated agent mount order")
+	}
+}
+
+func TestFailedMountNeverGetsAnIdleMeter(t *testing.T) {
+	data := client.MetricsData{Filesystems: []client.Filesystem{
+		{MountPoint: "/valid", TotalBytes: 100, UsedBytes: 50, UsedPercent: 50},
+		{MountPoint: "/invalid", TotalBytes: 0},
+	}}
+	view := ansi.Strip(FilesystemSummary(data, 80))
+	if !strings.Contains(view, "/invalid") || !strings.Contains(view, "unavailable") || strings.Count(view, "█") != 12 || lipgloss.Height(FilesystemSummary(data, 80)) != 4 {
+		t.Fatalf("invalid mount got a false meter or valid mount lost its bar: %q", view)
+	}
+}
+
+func TestFilesystemCardKeepsTextBackground(t *testing.T) {
+	data := client.MetricsData{Filesystems: []client.Filesystem{{MountPoint: "/", TotalBytes: 100, UsedBytes: 50, UsedPercent: 50}}}
+	for _, row := range strings.Split(FilesystemSummary(data, 80), "\n") {
+		assertCardTextBackground(t, row)
+	}
+}
+
+func TestCompactFilesystemKeepsBusiestMountMeterWithoutLeakingPathStyles(t *testing.T) {
+	data := client.MetricsData{Filesystems: []client.Filesystem{
+		{MountPoint: "/", TotalBytes: 100, UsedBytes: 25, UsedPercent: 25},
+		{MountPoint: "\x1b[31m/data\x1b[0m", TotalBytes: 100, UsedBytes: 90, UsedPercent: 90},
+	}}
+	for _, width := range []int{32, 56, 68, 80} {
+		view := FilesystemCompact(data, width)
+		plain := ansi.Strip(view)
+		if lipgloss.Width(view) > width || lipgloss.Height(view) != 1 || (width >= 56 && !strings.Contains(plain, "/data")) || !strings.Contains(plain, "90.0%") || !strings.Contains(plain, "█") || strings.Contains(view, "\x1b[31m") {
+			t.Fatalf("compact filesystem meter broke at %d columns: %q", width, view)
+		}
+	}
+	data.Filesystems[1].TotalBytes = 0
+	if view := FilesystemCompact(data, 80); !strings.Contains(ansi.Strip(view), "25.0%") || !strings.Contains(view, "█") {
+		t.Fatalf("invalid mount replaced the busiest valid meter: %q", view)
 	}
 }
 
@@ -83,8 +137,8 @@ func TestPartialHeadingIncludesUnreadableMountCount(t *testing.T) {
 	if strings.Contains(view, "/run/user") || strings.Contains(view, "/var/lib/docker") {
 		t.Fatal("mount deny details leaked into summary")
 	}
-	if height := lipgloss.Height(FilesystemSummary(data, 80)); height != 2 {
-		t.Fatalf("partial list uses %d lines, want heading and mount", height)
+	if height := lipgloss.Height(FilesystemSummary(data, 80)); height != 3 {
+		t.Fatalf("partial list uses %d lines, want heading, mount, and meter", height)
 	}
 }
 
@@ -92,7 +146,11 @@ func TestLongAndUnsafeMountPaths(t *testing.T) {
 	data := client.MetricsData{Filesystems: []client.Filesystem{{MountPoint: "\x1b[31m/data\x1b[0m\n\t" + strings.Repeat("界", 100), TotalBytes: 1024, UsedPercent: 50}}}
 	for _, width := range []int{24, 40, 80} {
 		view := FilesystemSummary(data, width)
-		if lipgloss.Width(view) > width || lipgloss.Height(view) > 2 || strings.Contains(view, "\x1b[31m") {
+		maxHeight := 2
+		if width >= 56 {
+			maxHeight = 3
+		}
+		if lipgloss.Width(view) > width || lipgloss.Height(view) > maxHeight || strings.Contains(view, "\x1b[31m") {
 			t.Fatal("mount path affected terminal layout or style")
 		}
 	}
