@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"charm.land/lipgloss/v2"
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/ch55secake/orbit/internal/tui/styles"
 	"github.com/charmbracelet/x/ansi"
@@ -31,20 +32,7 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 		return ""
 	}
 	contentWidth = max(contentWidth, 1)
-	filesystems := slices.Clone(data.Filesystems)
-	slices.SortStableFunc(filesystems, func(left, right client.Filesystem) int {
-		leftValid, rightValid := filesystemAvailable(left), filesystemAvailable(right)
-		if leftValid != rightValid {
-			if leftValid {
-				return -1
-			}
-			return 1
-		}
-		if !leftValid {
-			return 0
-		}
-		return cmp.Compare(right.UsedPercent, left.UsedPercent)
-	})
+	filesystems := sortedFilesystems(data.Filesystems)
 	heading := "FILESYSTEMS · fullest first"
 	if failed {
 		heading = "FILESYSTEMS · partial"
@@ -59,15 +47,7 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 	lines := []string{styles.Label.Render(ansi.Truncate(heading, contentWidth, "…"))}
 	const limit = 2
 	for _, filesystem := range filesystems[:min(len(filesystems), limit)] {
-		path := strings.TrimSpace(strings.Map(func(character rune) rune {
-			if unicode.IsControl(character) {
-				return ' '
-			}
-			return character
-		}, ansi.Strip(filesystem.MountPoint)))
-		if path == "" {
-			path = "(unknown mount)"
-		}
+		path := filesystemPath(filesystem.MountPoint)
 		usage := "— unavailable"
 		if filesystemAvailable(filesystem) {
 			usage = Percent(filesystem.UsedPercent)
@@ -93,6 +73,68 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 		return detailCard(width, lines...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// FilesystemCompact keeps the fullest mount and a short meter on one row when
+// the dashboard cannot fit the full filesystem card.
+func FilesystemCompact(data client.MetricsData, width int) string {
+	width = max(width, 1)
+	if len(data.Filesystems) == 0 {
+		if metricFailed(data, "filesystems") {
+			return ansi.Truncate(Metric("FILESYSTEMS", "— unavailable"), width, "…")
+		}
+		return ""
+	}
+	filesystems := sortedFilesystems(data.Filesystems)
+	filesystem := filesystems[0]
+	prefix := styles.Label.Render("FILESYSTEMS: ")
+	usage := "— unavailable"
+	if filesystemAvailable(filesystem) {
+		usage = Percent(filesystem.UsedPercent)
+	}
+	suffix := ""
+	if len(filesystems) > 1 {
+		suffix = fmt.Sprintf(" (+%d)", len(filesystems)-1)
+	}
+	bar := ""
+	if filesystemAvailable(filesystem) && width >= 32 {
+		barWidth := min(10, max(width-lipgloss.Width(prefix)-lipgloss.Width(usage+suffix)-5, 1))
+		bar = " " + usageBar(filesystem.UsedPercent, barWidth, nil)
+	}
+	pathWidth := max(width-lipgloss.Width(prefix)-lipgloss.Width(usage+bar+suffix)-2, 1)
+	path := ansi.Truncate(filesystemPath(filesystem.MountPoint), pathWidth, "…")
+	return ansi.Truncate(prefix+styles.Value.Render(path+" "+usage)+bar+styles.Subtitle.Render(suffix), width, "…")
+}
+
+func sortedFilesystems(filesystems []client.Filesystem) []client.Filesystem {
+	sorted := slices.Clone(filesystems)
+	slices.SortStableFunc(sorted, func(left, right client.Filesystem) int {
+		leftValid, rightValid := filesystemAvailable(left), filesystemAvailable(right)
+		if leftValid != rightValid {
+			if leftValid {
+				return -1
+			}
+			return 1
+		}
+		if !leftValid {
+			return 0
+		}
+		return cmp.Compare(right.UsedPercent, left.UsedPercent)
+	})
+	return sorted
+}
+
+func filesystemPath(path string) string {
+	path = strings.TrimSpace(strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return ' '
+		}
+		return character
+	}, ansi.Strip(path)))
+	if path == "" {
+		return "(unknown mount)"
+	}
+	return path
 }
 
 func unavailableMountCount(failures []client.MetricError) int {

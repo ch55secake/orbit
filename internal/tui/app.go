@@ -404,7 +404,10 @@ func (m *app) resizeTableHeight() {
 	if m.width < 110 {
 		if cursor := m.table.Cursor(); cursor >= 0 && cursor < len(m.statuses) && m.statuses[cursor].Metrics != nil {
 			if swap := components.SwapDetails(m.statuses[cursor].Metrics.Data, max(m.width-4, 1)); swap != "" {
-				reserved += lipgloss.Height(lipgloss.NewStyle().Width(max(m.width-4, 1)).Render(swap))
+				reserved += lipgloss.Height(swap)
+				if m.width >= 60 && m.height >= 32 {
+					reserved++ // spacing between expanded cards and configured swap
+				}
 			}
 			if filesystems := components.FilesystemSummary(m.statuses[cursor].Metrics.Data, max(m.width-4, 1)); filesystems != "" {
 				reserved += lipgloss.Height(filesystems) + 1

@@ -88,7 +88,11 @@ func SizedCards(data client.MetricsData, width, height int) string {
 		),
 	)
 	if swap := SwapDetails(data, width); swap != "" {
-		cards = lipgloss.JoinVertical(lipgloss.Left, cards, swap)
+		if height >= 5 {
+			cards = lipgloss.JoinVertical(lipgloss.Left, cards, "", swap)
+		} else {
+			cards = lipgloss.JoinVertical(lipgloss.Left, cards, swap)
+		}
 	}
 	return cards
 }
@@ -133,8 +137,9 @@ func SwapSummary(data client.MetricsData) string {
 	return Metric("Swap", fmt.Sprintf("%s / %s (%s)", client.FormatBytes(data.Swap.UsedBytes), client.FormatBytes(data.Swap.TotalBytes), Percent(data.Swap.UsedPercent)))
 }
 
-// SwapDetails renders a meter only for configured, valid swap. Disabled and
-// unavailable swap keep a plain status line instead of an empty colored card.
+// SwapDetails renders a meter only for configured, valid swap. A host without
+// swap doesn't add an empty panel to the card grid. Collector errors remain
+// explicit, but do not inherit the card background.
 func SwapDetails(data client.MetricsData, width int) string {
 	if data.Swap == nil && !metricFailed(data, "swap") {
 		return ""
@@ -142,8 +147,11 @@ func SwapDetails(data client.MetricsData, width int) string {
 	if width < 56 {
 		return ansi.Wrap(SwapSummary(data), max(width, 1), "")
 	}
-	if !MetricAvailable(data, "swap") || data.Swap.TotalBytes == 0 {
+	if !MetricAvailable(data, "swap") {
 		return ansi.Wrap(SwapSummary(data), width, "")
+	}
+	if data.Swap.TotalBytes == 0 {
+		return ""
 	}
 	background := styles.Card.GetBackground()
 	label := styles.Label.Background(background).Render("Swap")

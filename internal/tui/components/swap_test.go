@@ -45,7 +45,11 @@ func TestSwapSummary(t *testing.T) {
 			if test.want != "" && !strings.Contains(ansi.Strip(Summary(data)), test.want) {
 				t.Fatal("compact summary omitted optional swap")
 			}
-			if test.want != "" && (test.swap == nil || test.swap.TotalBytes == 0 || !MetricAvailable(data, "swap")) {
+			if test.swap != nil && test.swap.TotalBytes == 0 && MetricAvailable(data, "swap") {
+				if SwapDetails(data, 80) != "" {
+					t.Fatal("unconfigured swap created an optional card")
+				}
+			} else if test.want != "" && (test.swap == nil || !MetricAvailable(data, "swap")) {
 				plain := SwapDetails(data, 80)
 				if strings.Contains(plain, "\x1b[48;") || lipgloss.Height(plain) != 1 || ansi.Strip(plain) != test.want {
 					t.Fatalf("unconfigured/failed swap created a background card: %q", plain)
@@ -69,7 +73,7 @@ func TestSwapSummary(t *testing.T) {
 				if test.swap.UsedPercent < 100 && !strings.Contains(cards, "░") {
 					t.Errorf("available swap missing meter remainder: %q", cards)
 				}
-			} else if test.want != "" && !strings.Contains(cards, strings.TrimPrefix(test.want, "Swap: ")) {
+			} else if test.want != "" && test.name != "no swap" && !strings.Contains(cards, strings.TrimPrefix(test.want, "Swap: ")) {
 				t.Errorf("cards omitted optional swap status %q: %q", test.want, cards)
 			}
 		})
@@ -119,5 +123,28 @@ func TestSwapMeterDoesNotWrapOrClaimMissingFreeBytes(t *testing.T) {
 				t.Fatal("missing free-byte sample presented as zero free capacity")
 			}
 		}
+	}
+}
+
+func TestSwapCardSpacingOnlyWhenMeterIsRendered(t *testing.T) {
+	data := client.MetricsData{Swap: &client.Swap{TotalBytes: 1024, UsedBytes: 256, UsedPercent: 25}}
+	for _, height := range []int{3, 5} {
+		withSwap := strings.Split(ansi.Strip(SizedCards(data, 80, height)), "\n")
+		baseHeight := height*2 + 1
+		gap := 0
+		if height >= 5 {
+			gap = 1
+			if strings.TrimSpace(withSwap[baseHeight]) != "" {
+				t.Fatal("expanded swap card has no visual separation")
+			}
+		}
+		if len(withSwap) != baseHeight+gap+3 {
+			t.Fatalf("configured swap has unexpected card spacing: %d rows", len(withSwap))
+		}
+		data.Swap = &client.Swap{}
+		if got := lipgloss.Height(SizedCards(data, 80, height)); got != baseHeight {
+			t.Fatalf("unconfigured swap left a phantom row: %d instead of %d", got, baseHeight)
+		}
+		data.Swap = &client.Swap{TotalBytes: 1024, UsedBytes: 256, UsedPercent: 25}
 	}
 }

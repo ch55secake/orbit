@@ -40,7 +40,11 @@ func TestSwapFitsDashboard(t *testing.T) {
 				if state == "legacy" && strings.Contains(plain, "Swap") {
 					t.Fatal("older agent gained a fake swap reading")
 				}
-				if state != "legacy" && (!strings.Contains(plain, "Swap") || !strings.Contains(plain, want)) {
+				if state == "none" && size.Width >= 60 {
+					if strings.Contains(plain, "not configured") || strings.Contains(plain, "Swap") {
+						t.Fatal("unconfigured swap should not create a wide-screen status block")
+					}
+				} else if state != "legacy" && (!strings.Contains(plain, "Swap") || !strings.Contains(plain, want)) {
 					t.Fatalf("missing swap %q:\n%s", want, plain)
 				}
 				for _, label := range []string{"CPU", "Memory", "Disk", "Uptime"} {

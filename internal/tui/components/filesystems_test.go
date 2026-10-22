@@ -71,6 +71,24 @@ func TestFailedMountNeverGetsAnIdleMeter(t *testing.T) {
 	}
 }
 
+func TestCompactFilesystemKeepsBusiestMountMeterWithoutLeakingPathStyles(t *testing.T) {
+	data := client.MetricsData{Filesystems: []client.Filesystem{
+		{MountPoint: "/", TotalBytes: 100, UsedBytes: 25, UsedPercent: 25},
+		{MountPoint: "\x1b[31m/data\x1b[0m", TotalBytes: 100, UsedBytes: 90, UsedPercent: 90},
+	}}
+	for _, width := range []int{32, 56, 68, 80} {
+		view := FilesystemCompact(data, width)
+		plain := ansi.Strip(view)
+		if lipgloss.Width(view) > width || lipgloss.Height(view) != 1 || (width >= 56 && !strings.Contains(plain, "/data")) || !strings.Contains(plain, "90.0%") || !strings.Contains(plain, "█") || strings.Contains(view, "\x1b[31m") {
+			t.Fatalf("compact filesystem meter broke at %d columns: %q", width, view)
+		}
+	}
+	data.Filesystems[1].TotalBytes = 0
+	if view := FilesystemCompact(data, 80); !strings.Contains(ansi.Strip(view), "25.0%") || !strings.Contains(view, "█") {
+		t.Fatalf("invalid mount replaced the busiest valid meter: %q", view)
+	}
+}
+
 func TestUnavailableAndPartialFilesystems(t *testing.T) {
 	for _, filesystem := range []client.Filesystem{
 		{MountPoint: "/bad"},
