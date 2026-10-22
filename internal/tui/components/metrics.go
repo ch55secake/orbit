@@ -87,7 +87,7 @@ func SizedCards(data client.MetricsData, width, height int) string {
 			card("uptime", "Uptime", client.FormatUptime(data.Uptime), "since boot", 0, right),
 		),
 	)
-	if swap := SwapSummary(data); swap != "" {
+	if swap := SwapDetails(data, width); swap != "" {
 		cards = lipgloss.JoinVertical(lipgloss.Left, cards, ansi.Wrap(swap, width, ""))
 	}
 	return cards
@@ -131,6 +131,28 @@ func SwapSummary(data client.MetricsData) string {
 		return Metric("Swap", "not configured")
 	}
 	return Metric("Swap", fmt.Sprintf("%s / %s (%s)", client.FormatBytes(data.Swap.UsedBytes), client.FormatBytes(data.Swap.TotalBytes), Percent(data.Swap.UsedPercent)))
+}
+
+// SwapDetails adds a full-width usage meter and capacity breakdown when swap
+// telemetry is available. Legacy agents remain absent rather than appearing as
+// zero-capacity hosts.
+func SwapDetails(data client.MetricsData, width int) string {
+	if data.Swap == nil && !metricFailed(data, "swap") {
+		return ""
+	}
+	if !MetricAvailable(data, "swap") {
+		return ansi.Wrap(Metric("Swap", "— unavailable"), max(width, 1), "")
+	}
+	if data.Swap.TotalBytes == 0 {
+		return ansi.Wrap(Metric("Swap", "not configured"), max(width, 1), "")
+	}
+	width = max(width, 1)
+	prefix := styles.Label.Render("Swap: ") + styles.Value.Render(Percent(data.Swap.UsedPercent)) + " "
+	barWidth := max(width-lipgloss.Width(prefix), 1)
+	bar := usageBar(data.Swap.UsedPercent, barWidth, nil)
+	capacity := styles.Subtitle.Render("Used ") + styles.Value.Render(client.FormatBytes(data.Swap.UsedBytes)+" / "+client.FormatBytes(data.Swap.TotalBytes)) +
+		styles.Subtitle.Render(" · Free ") + styles.Value.Render(client.FormatBytes(data.Swap.FreeBytes))
+	return ansi.Wrap(prefix+bar+"\n"+capacity, width, "")
 }
 
 func validPercent(value float64) bool {

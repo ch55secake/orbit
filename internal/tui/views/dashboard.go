@@ -121,7 +121,7 @@ func Render(data DashboardData) string {
 				available -= lipgloss.Height(data.Table) + 1
 			}
 			available -= len(warnings)
-			if swap := components.SwapSummary(metrics); swap != "" {
+			if swap := components.SwapDetails(metrics, detailWidth); swap != "" {
 				available -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
 			}
 			if data.Message != "" {
@@ -141,7 +141,7 @@ func Render(data DashboardData) string {
 			if terminalWidth < 110 {
 				available -= lipgloss.Height(data.Table) + 1
 			}
-			if swap := components.SwapSummary(metrics); swap != "" {
+			if swap := components.SwapDetails(metrics, detailWidth); swap != "" {
 				available -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
 			}
 			if telemetry != "" {

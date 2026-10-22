@@ -61,7 +61,7 @@ func TestFilesystemsFitDashboard(t *testing.T) {
 					t.Fatal("fullest mount hidden")
 				}
 				if state == "combined" {
-					for _, want := range []string{"Load 1/5/15m", "Cores:", "Swap", "/data", "42.0%"} {
+					for _, want := range []string{"Load 1/5/15m", "Cores", "Swap", "/data", "42.0%"} {
 						if !strings.Contains(plain, want) {
 							t.Fatalf("combined metrics lost %q", want)
 						}

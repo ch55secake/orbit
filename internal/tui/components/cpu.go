@@ -1,14 +1,14 @@
 package components
 
 import (
-	"cmp"
 	"fmt"
 	"math"
-	"slices"
 	"strconv"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/ch55secake/orbit/internal/client"
+	"github.com/ch55secake/orbit/internal/tui/styles"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -28,41 +28,73 @@ func CPUDetails(data client.MetricsData, width int) string {
 		lines = append(lines, Metric("Load 1/5/15m", fmt.Sprintf("%s / %s / %s", loadValue(load.OneMinute), loadValue(load.FiveMinutes), loadValue(load.FifteenMinutes))))
 	}
 	if cores := cpu.PerCoreUsagePercent; len(cores) > 0 {
-		indices := make([]int, len(cores))
-		for index := range indices {
-			indices[index] = index
-		}
-		slices.SortStableFunc(indices, func(left, right int) int {
-			leftValid, rightValid := coreAvailable(cores[left]), coreAvailable(cores[right])
-			if leftValid != rightValid {
-				if leftValid {
-					return -1
-				}
-				return 1
-			}
-			if !leftValid {
-				return 0
-			}
-			return cmp.Compare(*cores[right], *cores[left])
-		})
-		limit := 4
+		graph, shown := coreContributionGraph(cores, width)
+		var legend string
 		if width < 56 {
-			limit = 2
-		}
-		var samples []string
-		for _, index := range indices[:min(len(indices), limit)] {
-			usage := "—"
-			if coreAvailable(cores[index]) {
-				usage = Percent(*cores[index])
+			legend = fmt.Sprintf("Cores %d/%d", shown, len(cores))
+			if shown < len(cores) {
+				legend += fmt.Sprintf(" (+%d)", len(cores)-shown)
 			}
-			samples = append(samples, fmt.Sprintf("%d:%s", index, usage))
+		} else {
+			legend = "Cores · low " + coreCell(0) + " " + coreCell(35) + " " + coreCell(70) + " " + coreCell(100) + " high"
+			if shown < len(cores) {
+				legend += fmt.Sprintf(" · %d/%d (+%d)", shown, len(cores), len(cores)-shown)
+			} else {
+				legend += fmt.Sprintf(" · %d cores", len(cores))
+			}
 		}
-		if len(cores) > limit {
-			samples = append(samples, fmt.Sprintf("+%d more", len(cores)-limit))
-		}
-		lines = append(lines, Metric("Cores", strings.Join(samples, " ")))
+		lines = append(lines, ansi.Wrap(legend, max(width, 1), ""))
+		lines = append(lines, graph...)
 	}
 	return ansi.Wrap(strings.Join(lines, "\n"), max(width, 1), "")
+}
+
+// coreContributionGraph maps cores in logical index order to a compact,
+// two-row heatmap. The row prefixes make each square addressable as a core ID.
+func coreContributionGraph(cores []*float64, width int) ([]string, int) {
+	width = max(width, 1)
+	digitWidth := len(strconv.Itoa(max(len(cores)-1, 0)))
+	rowPrefixWidth := digitWidth + 2 // index and colon-space
+	columns := max((width-rowPrefixWidth+1)/2, 1)
+	shown := min(len(cores), columns*2)
+	rows := make([]string, 0, 2)
+	for start := 0; start < shown; start += columns {
+		end := min(start+columns, shown)
+		var row strings.Builder
+		fmt.Fprintf(&row, "%0*d: ", digitWidth, start)
+		for index := start; index < end; index++ {
+			if index > start {
+				row.WriteByte(' ')
+			}
+			row.WriteString(coreCellValue(cores[index]))
+		}
+		rows = append(rows, row.String())
+	}
+	return rows, shown
+}
+
+func coreCellValue(value *float64) string {
+	if !coreAvailable(value) {
+		return styles.Subtitle.Render("?")
+	}
+	return coreCell(*value)
+}
+
+func coreCell(value float64) string {
+	var shade string
+	switch {
+	case value == 0:
+		shade = "#30363d"
+	case value <= 25:
+		shade = "#0e4429"
+	case value <= 50:
+		shade = "#006d32"
+	case value <= 75:
+		shade = "#26a641"
+	default:
+		shade = "#39d353"
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(shade)).Render("■")
 }
 
 func coreAvailable(value *float64) bool { return value != nil && validPercent(*value) }

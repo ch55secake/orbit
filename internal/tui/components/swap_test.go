@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/ch55secake/orbit/internal/client"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -38,14 +39,44 @@ func TestSwapSummary(t *testing.T) {
 			if MetricAvailable(data, "swap") != test.available {
 				t.Fatal("incorrect availability")
 			}
-			for _, view := range []string{Summary(data), SizedCards(data, 80, 5)} {
-				if test.want == "" && strings.Contains(view, "Swap") {
-					t.Fatal("legacy response displays swap")
+			if test.want == "" && (strings.Contains(Summary(data), "Swap") || SwapDetails(data, 80) != "") {
+				t.Fatal("legacy response displays swap")
+			}
+			if test.want != "" && !strings.Contains(ansi.Strip(Summary(data)), test.want) {
+				t.Fatal("compact summary omitted optional swap")
+			}
+			cards := ansi.Strip(SizedCards(data, 80, 5))
+			if test.swap != nil && test.swap.TotalBytes > 0 && MetricAvailable(data, "swap") {
+				for _, want := range []string{"Swap:", "Used", "Free"} {
+					if !strings.Contains(cards, want) {
+						t.Errorf("detailed swap bar omitted %q: %q", want, cards)
+					}
 				}
-				if test.want != "" && !strings.Contains(ansi.Strip(view), test.want) {
-					t.Fatal("summary/cards omitted optional swap")
+				if test.swap.UsedPercent > 0 && !strings.Contains(cards, "█") {
+					t.Errorf("nonzero swap use missing filled meter: %q", cards)
 				}
+				if test.swap.UsedPercent < 100 && !strings.Contains(cards, "░") {
+					t.Errorf("available swap missing meter remainder: %q", cards)
+				}
+			} else if test.want != "" && !strings.Contains(cards, test.want) {
+				t.Errorf("cards omitted optional swap status %q: %q", test.want, cards)
 			}
 		})
+	}
+}
+
+func TestSwapDetailsFitAndShowAFullWidthMeter(t *testing.T) {
+	data := client.MetricsData{Swap: &client.Swap{TotalBytes: 2 << 30, UsedBytes: 1 << 30, FreeBytes: 1 << 30, UsedPercent: 50}}
+	for _, width := range []int{20, 24, 40, 80} {
+		view := SwapDetails(data, width)
+		if lipgloss.Width(view) > width {
+			t.Fatalf("swap details width %d exceeds %d: %q", lipgloss.Width(view), width, ansi.Strip(view))
+		}
+		plain := strings.Join(strings.Fields(ansi.Strip(view)), " ")
+		for _, want := range []string{"Swap:", "50.0%", "Used 1.0 GiB / 2.0 GiB", "Free 1.0 GiB", "█", "░"} {
+			if !strings.Contains(plain, want) {
+				t.Errorf("swap details missing %q at width %d: %q", want, width, plain)
+			}
+		}
 	}
 }

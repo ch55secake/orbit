@@ -12,24 +12,24 @@ import (
 
 func cpuSample(value float64) *float64 { return &value }
 
-func TestCPUDetailsPreserveCoreIndicesAndLoadUnits(t *testing.T) {
+func TestCPUDetailsRenderCoreContributionGraphAndLoadUnits(t *testing.T) {
 	data := client.MetricsData{CPU: client.CPU{UsagePercent: 23.5, LogicalCores: 4, PerCoreUsagePercent: []*float64{cpuSample(0), cpuSample(42.5), cpuSample(99.9), cpuSample(12)}, LoadAverage: &client.LoadAverage{OneMinute: cpuSample(0.5), FiveMinutes: cpuSample(1.25), FifteenMinutes: cpuSample(250.5)}}}
 	for _, width := range []int{24, 40, 80} {
 		view := CPUDetails(data, width)
 		plain := ansi.Strip(view)
-		for _, want := range []string{"Load 1/5/15m", "0.5", "1.25", "250.5", "Cores", "2:99.9%", "1:42.5%"} {
+		for _, want := range []string{"Load 1/5/15m", "0.5", "1.25", "250.5", "Cores", "0:"} {
 			if !strings.Contains(plain, want) {
 				t.Fatalf("missing %q: %q", want, plain)
 			}
 		}
-		if strings.Index(plain, "2:99.9%") > strings.Index(plain, "1:42.5%") {
-			t.Fatal("busiest core not prioritized")
+		if strings.Count(plain, "■") < 4 {
+			t.Fatalf("core utilization graph missing: %q", plain)
+		}
+		if width >= 56 && (!strings.Contains(plain, "low") || !strings.Contains(plain, "high")) {
+			t.Fatalf("wide core graph is missing its usage legend: %q", plain)
 		}
 		if lipgloss.Width(view) > width {
 			t.Fatal("CPU detail exceeds width")
-		}
-		if width == 80 && !strings.Contains(plain, "0:0.0%") {
-			t.Fatal("valid idle core unavailable")
 		}
 	}
 	if *data.CPU.PerCoreUsagePercent[0] != 0 {
@@ -43,7 +43,7 @@ func TestCPUDetailsHandleMissingAndInvalidValues(t *testing.T) {
 	}
 	data := client.MetricsData{CPU: client.CPU{PerCoreUsagePercent: []*float64{nil, cpuSample(-1), cpuSample(101), cpuSample(math.NaN())}, LoadAverage: &client.LoadAverage{OneMinute: nil, FiveMinutes: cpuSample(0), FifteenMinutes: cpuSample(-1)}}}
 	view := ansi.Strip(CPUDetails(data, 80))
-	for _, want := range []string{"— / 0 / —", "0:—", "1:—", "2:—", "3:—"} {
+	for _, want := range []string{"— / 0 / —", "0: ? ? ? ?"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("invalid sample looks idle: %q", view)
 		}
@@ -69,10 +69,10 @@ func TestManyCPUCoreSamplesStayBounded(t *testing.T) {
 	}
 	for _, width := range []int{24, 40, 80} {
 		view := CPUDetails(data, width)
-		if lipgloss.Width(view) > width || lipgloss.Height(view) > 3 {
+		if lipgloss.Width(view) > width || lipgloss.Height(view) > 4 {
 			t.Fatal("large core list unbounded")
 		}
-		if !strings.Contains(ansi.Strip(view), "more") {
+		if !strings.Contains(ansi.Strip(view), "(+") {
 			t.Fatal("omitted core count missing")
 		}
 	}

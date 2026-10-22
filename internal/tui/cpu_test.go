@@ -57,8 +57,8 @@ func TestCPUDetailsFitDashboard(t *testing.T) {
 				if state != "legacy" && state != "cores" && state != "failed" && !strings.Contains(plain, "Load 1/5/15m") {
 					t.Fatal("load averages missing")
 				}
-				if state != "legacy" && state != "load" && state != "failed" && (!strings.Contains(plain, "Cores:") || !strings.Contains(plain, "1:95.0%")) {
-					t.Fatal("core samples or indices missing")
+				if state != "legacy" && state != "load" && state != "failed" && (!strings.Contains(plain, "Cores") || !strings.Contains(plain, "0:") || !strings.Contains(plain, "■")) {
+					t.Fatal("core contribution graph or indices missing")
 				}
 				if state != "failed" && !strings.Contains(plain, "42.0%") {
 					t.Fatal("CPU detail obscured aggregate CPU")
