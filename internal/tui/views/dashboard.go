@@ -94,6 +94,10 @@ func Render(data DashboardData) string {
 		detail = lipgloss.JoinVertical(lipgloss.Left, lines...)
 	case data.Selected.Metrics != nil:
 		metrics := data.Selected.Metrics.Data
+		summaryData := metrics
+		if detailWidth >= 56 && metrics.Swap != nil && metrics.Swap.TotalBytes == 0 && components.MetricAvailable(metrics, "swap") {
+			summaryData.Swap = nil
+		}
 		warnings := metricErrorWarnings(metrics.Errors, detailWidth)
 		lines := []string{styles.Title.Render(data.Selected.Server.Name) + "  " + styles.Good.Render("● online")}
 		if status := tunnelStatus(data.Selected); status != "" {
@@ -121,8 +125,8 @@ func Render(data DashboardData) string {
 				available -= lipgloss.Height(data.Table) + 1
 			}
 			available -= len(warnings)
-			if swap := components.SwapSummary(metrics); swap != "" {
-				available -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
+			if swap := components.SwapDetails(metrics, detailWidth); swap != "" {
+				available -= lipgloss.Height(swap) + 1
 			}
 			if data.Message != "" {
 				available -= 2
@@ -141,8 +145,8 @@ func Render(data DashboardData) string {
 			if terminalWidth < 110 {
 				available -= lipgloss.Height(data.Table) + 1
 			}
-			if swap := components.SwapSummary(metrics); swap != "" {
-				available -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
+			if swap := components.SwapDetails(metrics, detailWidth); swap != "" {
+				available -= lipgloss.Height(swap) + 1
 			}
 			if telemetry != "" {
 				available -= lipgloss.Height(telemetry) + 1
@@ -162,8 +166,8 @@ func Render(data DashboardData) string {
 				}
 				return height
 			}
-			minimum := lipgloss.Height(ansi.Wrap(components.Summary(metrics), detailWidth, ""))
-			if swap := components.SwapSummary(metrics); swap != "" {
+			minimum := lipgloss.Height(ansi.Wrap(components.Summary(summaryData), detailWidth, ""))
+			if swap := components.SwapSummary(summaryData); swap != "" {
 				minimum -= lipgloss.Height(ansi.Wrap(swap, detailWidth, ""))
 			}
 			if available-extraHeight() < minimum && telemetry != "" {
@@ -177,21 +181,29 @@ func Render(data DashboardData) string {
 				interfaces = ""
 			}
 			if filesystems != "" && available-extraHeight() < minimum {
-				// Keep the fullest mount visible alongside newer CPU detail when
-				// there is no room for the full bounded filesystem list.
-				prefix, suffix := "FILESYSTEMS: ", ""
-				if len(metrics.Filesystems) > 1 {
-					suffix = fmt.Sprintf(" (+%d)", len(metrics.Filesystems)-1)
-				}
-				rows := strings.Split(components.FilesystemSummary(metrics, max(detailWidth-len(prefix)-len(suffix), 1)), "\n")
-				if len(rows) > 1 {
-					filesystems = styles.Label.Render(prefix) + rows[1] + styles.Subtitle.Render(suffix)
-				}
+				filesystems = components.FilesystemCompact(metrics, detailWidth)
 			}
 			cardHeight = min(cardHeight, (available-extraHeight()-1)/2)
 		}
+		if cardHeight >= 3 && terminalWidth < 110 {
+			remaining := bodyHeight - lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, lines...)) - lipgloss.Height(data.Table) - 1 - len(warnings)
+			for _, section := range []string{telemetry, cpuDetails, filesystems, interfaces} {
+				if section != "" {
+					remaining -= lipgloss.Height(section) + 1
+				}
+			}
+			if data.Message != "" {
+				remaining -= 2
+			}
+			if data.Notice != "" {
+				remaining -= lipgloss.Height(ansi.Wrap(data.Notice, detailWidth, "")) + 1
+			}
+			if lipgloss.Height(components.SizedCards(metrics, detailWidth, cardHeight)) > remaining {
+				cardHeight = 0
+			}
+		}
 		if cardHeight < 3 {
-			lines = append(lines, components.Summary(metrics))
+			lines = append(lines, components.Summary(summaryData))
 		} else {
 			lines = append(lines, components.SizedCards(metrics, detailWidth, cardHeight))
 		}

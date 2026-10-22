@@ -87,8 +87,8 @@ func SizedCards(data client.MetricsData, width, height int) string {
 			card("uptime", "Uptime", client.FormatUptime(data.Uptime), "since boot", 0, right),
 		),
 	)
-	if swap := SwapSummary(data); swap != "" {
-		cards = lipgloss.JoinVertical(lipgloss.Left, cards, ansi.Wrap(swap, width, ""))
+	if swap := SwapDetails(data, width); swap != "" {
+		cards = lipgloss.JoinVertical(lipgloss.Left, cards, "", swap)
 	}
 	return cards
 }
@@ -131,6 +131,34 @@ func SwapSummary(data client.MetricsData) string {
 		return Metric("Swap", "not configured")
 	}
 	return Metric("Swap", fmt.Sprintf("%s / %s (%s)", client.FormatBytes(data.Swap.UsedBytes), client.FormatBytes(data.Swap.TotalBytes), Percent(data.Swap.UsedPercent)))
+}
+
+// SwapDetails renders a meter only for configured, valid swap. A host without
+// swap doesn't add an empty panel to the card grid. Collector errors remain
+// explicit, but do not inherit the card background.
+func SwapDetails(data client.MetricsData, width int) string {
+	if data.Swap == nil && !metricFailed(data, "swap") {
+		return ""
+	}
+	if width < 56 {
+		return ansi.Wrap(SwapSummary(data), max(width, 1), "")
+	}
+	if !MetricAvailable(data, "swap") {
+		return ansi.Wrap(SwapSummary(data), width, "")
+	}
+	if data.Swap.TotalBytes == 0 {
+		return ""
+	}
+	background := styles.Card.GetBackground()
+	label := styles.Label.Background(background).Render("Swap  ")
+	value := styles.Title.Background(background).Render(Percent(data.Swap.UsedPercent))
+	heading := label + value
+	capacity := client.FormatBytes(data.Swap.UsedBytes) + " / " + client.FormatBytes(data.Swap.TotalBytes) +
+		" used · " + client.FormatBytes(data.Swap.TotalBytes-data.Swap.UsedBytes) + " remaining"
+	return detailCard(width, heading,
+		usageBar(data.Swap.UsedPercent, min(width-2, 32), background),
+		styles.Subtitle.Background(background).Render(ansi.Truncate(capacity, width-2, "…")),
+	)
 }
 
 func validPercent(value float64) bool {
