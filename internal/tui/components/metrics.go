@@ -142,29 +142,23 @@ func SwapDetails(data client.MetricsData, width int) string {
 	if width < 56 {
 		return ansi.Wrap(SwapSummary(data), max(width, 1), "")
 	}
-	width = max(width, 1)
 	background := styles.Card.GetBackground()
-	line := func(text string) string {
-		return lipgloss.NewStyle().Background(background).Padding(0, 1).Width(width).Render(text)
-	}
 	label := styles.Label.Background(background).Render("Swap")
 	if !MetricAvailable(data, "swap") {
-		return line(label + "  " + styles.Warn.Background(background).Render("— unavailable"))
+		return detailCard(width, label+"  "+styles.Warn.Background(background).Render("— unavailable"))
 	}
 	if data.Swap.TotalBytes == 0 {
-		return line(label + "  " + styles.Subtitle.Background(background).Render("not configured"))
+		return detailCard(width, label+"  "+styles.Subtitle.Background(background).Render("not configured"))
 	}
-	contentWidth := max(width-2, 1)
 	value := styles.Title.Background(background).Render(Percent(data.Swap.UsedPercent))
-	heading := label + strings.Repeat(" ", max(contentWidth-lipgloss.Width(label)-lipgloss.Width(value), 1)) + value
+	heading := label + "  " + value
 	// Remaining capacity is derived from the same used/total sample as the meter;
 	// optional or inconsistent free-byte readings must not contradict the bar.
 	capacity := client.FormatBytes(data.Swap.UsedBytes) + " / " + client.FormatBytes(data.Swap.TotalBytes) +
 		" used · " + client.FormatBytes(data.Swap.TotalBytes-data.Swap.UsedBytes) + " remaining"
-	return lipgloss.JoinVertical(lipgloss.Left,
-		line(heading),
-		line(usageBar(data.Swap.UsedPercent, contentWidth, background)),
-		line(styles.Subtitle.Background(background).Render(ansi.Truncate(capacity, contentWidth, "…"))),
+	return detailCard(width, heading,
+		usageBar(data.Swap.UsedPercent, min(width-2, 32), background),
+		styles.Subtitle.Background(background).Render(ansi.Truncate(capacity, width-2, "…")),
 	)
 }
 

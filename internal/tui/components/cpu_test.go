@@ -31,6 +31,9 @@ func TestCPUDetailsRenderCoreContributionGraphAndLoadUnits(t *testing.T) {
 		if lipgloss.Width(view) > width {
 			t.Fatal("CPU detail exceeds width")
 		}
+		if width == 80 && lipgloss.Width(view) != width {
+			t.Fatal("core grid does not fill its own detail card")
+		}
 	}
 	if *data.CPU.PerCoreUsagePercent[0] != 0 {
 		t.Fatal("rendering reordered source CPU samples")

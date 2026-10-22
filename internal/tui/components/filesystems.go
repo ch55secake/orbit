@@ -16,13 +16,21 @@ import (
 // or letting large mount lists crowd out CPU, memory, disk, and uptime.
 func FilesystemSummary(data client.MetricsData, width int) string {
 	failed := metricFailed(data, "filesystems")
+	card := width >= 56
+	contentWidth := width
+	if card {
+		contentWidth -= 2
+	}
 	if len(data.Filesystems) == 0 {
 		if failed {
+			if card {
+				return detailCard(width, styles.Label.Render("FILESYSTEMS"), styles.Warn.Render("— unavailable"))
+			}
 			return styles.Label.Render("FILESYSTEMS") + "\n" + styles.Warn.Render("— unavailable")
 		}
 		return ""
 	}
-	width = max(width, 1)
+	contentWidth = max(contentWidth, 1)
 	filesystems := slices.Clone(data.Filesystems)
 	slices.SortStableFunc(filesystems, func(left, right client.Filesystem) int {
 		leftValid, rightValid := filesystemAvailable(left), filesystemAvailable(right)
@@ -48,7 +56,7 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 			heading = fmt.Sprintf("FILESYSTEMS · partial · %d %s unavailable", unavailable, mountLabel)
 		}
 	}
-	lines := []string{styles.Label.Render(ansi.Truncate(heading, width, "…"))}
+	lines := []string{styles.Label.Render(ansi.Truncate(heading, contentWidth, "…"))}
 	const limit = 2
 	for _, filesystem := range filesystems[:min(len(filesystems), limit)] {
 		path := strings.TrimSpace(strings.Map(func(character rune) rune {
@@ -63,12 +71,12 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 		usage := "— unavailable"
 		if filesystemAvailable(filesystem) {
 			usage = Percent(filesystem.UsedPercent)
-			if width >= 56 {
+			if card {
 				usage += fmt.Sprintf("  %s / %s", client.FormatBytes(filesystem.UsedBytes), client.FormatBytes(filesystem.TotalBytes))
 			}
 		}
-		path = ansi.Truncate(path, max(width-ansi.StringWidth(usage)-2, 1), "…")
-		lines = append(lines, styles.Value.Render(ansi.Truncate(path+"  "+usage, width, "…")))
+		path = ansi.Truncate(path, max(contentWidth-ansi.StringWidth(usage)-2, 1), "…")
+		lines = append(lines, styles.Value.Render(ansi.Truncate(path+"  "+usage, contentWidth, "…")))
 	}
 	if len(filesystems) > limit {
 		remaining := len(filesystems) - limit
@@ -76,7 +84,10 @@ func FilesystemSummary(data client.MetricsData, width int) string {
 		if remaining == 1 {
 			label = "mount"
 		}
-		lines = append(lines, styles.Subtitle.Render(ansi.Truncate(fmt.Sprintf("+%d more %s", remaining, label), width, "…")))
+		lines = append(lines, styles.Subtitle.Render(ansi.Truncate(fmt.Sprintf("+%d more %s", remaining, label), contentWidth, "…")))
+	}
+	if card {
+		return detailCard(width, lines...)
 	}
 	return strings.Join(lines, "\n")
 }

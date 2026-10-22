@@ -83,3 +83,30 @@ func TestSwapDetailsFitAndShowAFullWidthMeter(t *testing.T) {
 		t.Fatalf("narrow swap fallback did not fit: %q", narrow)
 	}
 }
+
+func TestSwapMeterDoesNotWrapOrClaimMissingFreeBytes(t *testing.T) {
+	for _, test := range []struct {
+		percent float64
+		used    uint64
+		filled  int
+	}{
+		{percent: 0, used: 0, filled: 0},
+		{percent: 25, used: 512 << 20, filled: 8},
+		{percent: 100, used: 2 << 30, filled: 32},
+	} {
+		for _, width := range []int{56, 57, 80, 120} {
+			data := client.MetricsData{Swap: &client.Swap{TotalBytes: 2 << 30, UsedBytes: test.used, UsedPercent: test.percent}}
+			card := SwapDetails(data, width)
+			rows := strings.Split(ansi.Strip(card), "\n")
+			if len(rows) != 3 || lipgloss.Width(card) != width {
+				t.Fatalf("swap meter wrapped at %d columns: %dx%d %q", width, lipgloss.Width(card), len(rows), rows)
+			}
+			if got := strings.Count(rows[1], "█"); got != test.filled {
+				t.Fatalf("%.0f%% swap at width %d rendered %d filled cells, want %d: %q", test.percent, width, got, test.filled, rows[1])
+			}
+			if strings.Contains(strings.Join(rows, "\n"), "0 B free") {
+				t.Fatal("missing free-byte sample presented as zero free capacity")
+			}
+		}
+	}
+}

@@ -20,7 +20,15 @@ func CPUDetails(data client.MetricsData, width int) string {
 	if len(cpu.PerCoreUsagePercent) == 0 && cpu.LoadAverage == nil {
 		return ""
 	}
+	card := width >= 56
+	contentWidth := width
+	if card {
+		contentWidth -= 2
+	}
 	if metricFailed(data, "cpu") {
+		if card {
+			return detailCard(width, styles.Label.Render("CORES"), styles.Warn.Render("— unavailable"))
+		}
 		return ansi.Wrap(Metric("CPU detail", "— unavailable"), max(width, 1), "")
 	}
 	var lines []string
@@ -28,17 +36,20 @@ func CPUDetails(data client.MetricsData, width int) string {
 		lines = append(lines, Metric("Load 1/5/15m", fmt.Sprintf("%s / %s / %s", loadValue(load.OneMinute), loadValue(load.FiveMinutes), loadValue(load.FifteenMinutes))))
 	}
 	if cores := cpu.PerCoreUsagePercent; len(cores) > 0 {
-		graph, shown := coreContributionGraph(cores, width)
-		legend := fmt.Sprintf("Cores · %d/%d", shown, len(cores))
+		graph, shown := coreContributionGraph(cores, contentWidth)
+		legend := styles.Label.Render("Cores") + fmt.Sprintf(" · %d/%d", shown, len(cores))
 		if shown < len(cores) {
 			legend += fmt.Sprintf(" (+%d)", len(cores)-shown)
 		}
 		scale := " · 0% " + coreCell(0) + " " + coreCell(35) + " " + coreCell(70) + " " + coreCell(100) + " 100%"
-		if lipgloss.Width(legend+scale) <= width {
+		if lipgloss.Width(legend+scale) <= contentWidth {
 			legend += scale
 		}
 		lines = append(lines, legend)
 		lines = append(lines, graph...)
+	}
+	if card {
+		return detailCard(width, lines...)
 	}
 	return ansi.Wrap(strings.Join(lines, "\n"), max(width, 1), "")
 }

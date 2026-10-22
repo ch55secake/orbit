@@ -183,7 +183,7 @@ func Render(data DashboardData) string {
 				if len(metrics.Filesystems) > 1 {
 					suffix = fmt.Sprintf(" (+%d)", len(metrics.Filesystems)-1)
 				}
-				rows := strings.Split(components.FilesystemSummary(metrics, max(detailWidth-len(prefix)-len(suffix), 1)), "\n")
+				rows := strings.Split(components.FilesystemSummary(metrics, min(max(detailWidth-len(prefix)-len(suffix), 1), 55)), "\n")
 				if len(rows) > 1 {
 					filesystems = styles.Label.Render(prefix) + rows[1] + styles.Subtitle.Render(suffix)
 				}

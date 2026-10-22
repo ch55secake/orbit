@@ -36,6 +36,9 @@ func TestFilesystemSummaryPrioritizesFullMounts(t *testing.T) {
 		if lipgloss.Width(view) > width || lipgloss.Height(view) > 4 {
 			t.Fatal("mount list not bounded")
 		}
+		if width == 80 && lipgloss.Width(view) != width {
+			t.Fatal("filesystem list does not fill its own detail card")
+		}
 	}
 	if !reflect.DeepEqual(data.Filesystems, wantOrder) {
 		t.Fatal("rendering mutated agent mount order")
