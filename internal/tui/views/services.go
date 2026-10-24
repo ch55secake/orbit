@@ -16,8 +16,15 @@ type ServiceBrowserData struct {
 	Filter, Input    string
 	Editing, Loading bool
 	Error            string
+	Notice           string
 	Detail           *client.ServiceUnit
 	PageNumber       int
+}
+
+type ServiceRestartData struct {
+	Server, Unit, Phase string
+	Operation           client.ServiceRestartOperation
+	Error               string
 }
 
 // RenderServices bounds every row and column, even in undersized terminals.
@@ -37,7 +44,7 @@ func RenderServices(data DashboardData, browser ServiceBrowserData) string {
 	if data.Selected != nil {
 		name = data.Selected.Server.Name
 	}
-	title := styles.Title.Render("SERVICES · " + client.ServiceText(name) + " · read-only")
+	title := styles.Title.Render("SERVICES · " + client.ServiceText(name))
 	header := title
 	fleetInHeader := terminalWidth >= 64 && height >= 40 && FleetInMasthead(terminalWidth, height)
 	if terminalWidth >= 64 && height >= 40 {
@@ -45,7 +52,9 @@ func RenderServices(data DashboardData, browser ServiceBrowserData) string {
 		mastheadData.Width = width
 		header = renderMasthead(mastheadData) + "\n" + title
 	}
-	footer := serviceFooter(width, browser.Editing)
+	selectedUnit := selectedService(browser)
+	canRestart := !browser.Loading && !browser.Editing && browser.Page.Capabilities.Restart && selectedUnit != nil && selectedUnit.RestartAllowed
+	footer := serviceFooter(width, browser.Editing, canRestart)
 	headerLines := strings.Split(header, "\n")
 	headerLines = headerLines[:min(len(headerLines), max(height-4, 1))]
 	available := max(height-len(headerLines)-2, 1)
@@ -108,6 +117,9 @@ func serviceLines(browser ServiceBrowserData, width, height int) []string {
 	if browser.Error != "" {
 		return append(lines, strings.Split(ansi.Hardwrap(client.ServiceText(browser.Error), max(width, 1), false), "\n")...)
 	}
+	if browser.Notice != "" {
+		lines = append(lines, styles.Warn.Render(client.ServiceText(browser.Notice)))
+	}
 	if len(browser.Page.Units) == 0 {
 		return append(lines, "No authorized services match this filter.")
 	}
@@ -116,11 +128,16 @@ func serviceLines(browser ServiceBrowserData, width, height int) []string {
 	if browser.Detail != nil {
 		unit = *browser.Detail
 	}
+	restartAccess := "read-only"
+	if browser.Page.Capabilities.Restart && unit.RestartAllowed {
+		restartAccess = "authorized"
+	}
 	details := []string{
 		styles.Label.Render("SELECTED · Enter/r reads live details"),
 		client.ServiceText(unit.ID) + " · " + client.ServiceText(unit.Description),
 		fmt.Sprintf("State: %s/%s · Load: %s", client.ServiceText(unit.ActiveState), client.ServiceText(unit.SubState), client.ServiceText(unit.LoadState)),
 		"Unit file: " + client.ServiceText(unit.UnitFileState),
+		"Restart access: " + restartAccess,
 	}
 	if unit.MainPID == 0 {
 		details = append(details, "Main process: none")
@@ -160,7 +177,7 @@ func serviceFit(lines []string, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func serviceFooter(width int, editing bool) string {
+func serviceFooter(width int, editing, canRestart bool) string {
 	if editing {
 		if width < 12 {
 			return "Esc"
@@ -180,16 +197,101 @@ func serviceFooter(width int, editing bool) string {
 	case width < 12:
 		return "Esc back"
 	case width < 22:
+		if canRestart {
+			return "R restart · Esc"
+		}
 		return "r · Esc back"
 	case width < 36:
+		if canRestart {
+			return "↑↓ · R restart · Esc"
+		}
 		return "↑↓ · g logs · / · Esc back"
 	case width < 56:
+		if canRestart {
+			return "↑↓ · R restart · g logs · Esc"
+		}
 		return "↑↓ · g logs · / filter · Tab · Esc back"
 	case width < 70:
+		if canRestart {
+			return "R restart · ↑↓ select · Enter · g logs · Esc"
+		}
 		return "↑↓ · Enter · g logs · ←→ · / filter · Tab server · Esc back"
 	case width < 90:
+		if canRestart {
+			return "↑↓ · Enter inspect · g logs · R restart · Esc back"
+		}
 		return "↑↓ · Enter inspect · g logs · ←→ page · / filter · Tab server · Esc back"
 	default:
+		if canRestart {
+			return "↑↓ select · Enter inspect · g logs · R restart · ←→ page · / filter · Tab · Esc"
+		}
 		return "↑↓ select · Enter inspect · g logs · ←→ page · / filter · Tab server · Esc back"
 	}
+}
+
+func selectedService(browser ServiceBrowserData) *client.ServiceUnit {
+	if browser.Detail != nil {
+		return browser.Detail
+	}
+	if browser.Cursor < 0 || browser.Cursor >= len(browser.Page.Units) {
+		return nil
+	}
+	return &browser.Page.Units[browser.Cursor]
+}
+
+func RenderServiceRestart(data DashboardData, restart ServiceRestartData) string {
+	width, height := data.Width, data.Height
+	if width <= 0 {
+		width = 80
+	}
+	if height <= 0 {
+		height = 24
+	}
+	padding := min(2, max((width-1)/2, 0))
+	contentWidth := max(width-2*padding, 1)
+	lines := []string{
+		styles.Title.Render("SYSTEMD SERVICE RESTART"),
+		"Server: " + client.ServiceText(restart.Server),
+		"Unit: " + client.ServiceText(restart.Unit),
+		"",
+	}
+	switch restart.Phase {
+	case "confirm":
+		lines = append(lines,
+			styles.Warn.Render("Restarting this service may interrupt it."),
+			"Only the named systemd unit will be requested through Stardust.",
+			"Press y to confirm; Esc or n cancels without sending a restart request.",
+		)
+	case "submitting":
+		lines = append(lines, "Submitting the confirmed restart request…", "Duplicate input is ignored while the request is in flight.")
+	case "tracking":
+		lines = append(lines, "Operation: "+client.ServiceText(restart.Operation.ID), "State: "+client.ServiceText(restart.Operation.State), "Waiting for Stardust to reconcile the systemd job…")
+	case "unknown":
+		lines = append(lines, styles.Warn.Render("Restart outcome is unknown."))
+		if restart.Operation.ID != "" {
+			lines = append(lines, "Operation: "+client.ServiceText(restart.Operation.ID))
+		} else {
+			lines = append(lines, "Stardust did not return an operation ID; the request identity is retained in memory.")
+		}
+		lines = append(lines, "Press r to reconcile with the same request identity; do not start another restart.")
+	case "complete":
+		lines = append(lines, "Operation: "+client.ServiceText(restart.Operation.ID), "State: "+client.ServiceText(restart.Operation.State))
+		if restart.Operation.JobResult != "" {
+			lines = append(lines, "Systemd job: "+client.ServiceText(restart.Operation.JobResult))
+		}
+		if restart.Operation.ErrorCode != "" {
+			lines = append(lines, "Operation detail: "+client.ServiceRestartErrorText(restart.Operation.ErrorCode))
+		}
+		if restart.Operation.ObservationError != "" {
+			lines = append(lines, "Systemd observation: "+client.ServiceText(restart.Operation.ObservationError))
+		}
+		if restart.Operation.ActiveState != "" || restart.Operation.SubState != "" {
+			lines = append(lines, "Systemd state: "+client.ServiceText(restart.Operation.ActiveState)+"/"+client.ServiceText(restart.Operation.SubState))
+		}
+		lines = append(lines, "This does not report application health.", "Press Enter or Esc to return.")
+	}
+	if restart.Error != "" {
+		lines = append(lines, "", styles.Bad.Render(client.ServiceText(restart.Error)))
+	}
+	return lipgloss.NewStyle().Padding(0, padding).Render(serviceFit(lines, contentWidth, height))
 }

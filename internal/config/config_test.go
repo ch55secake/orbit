@@ -48,6 +48,24 @@ func TestSaveAndLoadSSHServer(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadServiceRestartTokenPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	want := Server{Name: "remote", Address: "https://agent.example", ServiceRestartTokenFile: "/run/secrets/stardust-restart-token"}
+	if err := Save(path, Config{Servers: []Server{want}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Servers) != 1 || got.Servers[0].ServiceRestartTokenFile != want.ServiceRestartTokenFile {
+		t.Fatalf("restart token file path was not preserved: %+v", got.Servers)
+	}
+	if err := (Server{Name: "remote", Address: "https://agent.example", ServiceRestartTokenFile: "relative/token"}).Validate(); err == nil || !strings.Contains(err.Error(), "service_restart_token_file must be an absolute path") {
+		t.Fatalf("relative restart token path was accepted: %v", err)
+	}
+}
+
 func TestMissingConfigIsEmpty(t *testing.T) {
 	cfg, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
 	if err != nil {
