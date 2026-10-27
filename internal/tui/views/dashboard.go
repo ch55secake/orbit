@@ -16,32 +16,33 @@ import (
 )
 
 type DashboardData struct {
-	Version        string
-	ConfigPath     string
-	Table          string
-	Statuses       []server.Status
-	Selected       *server.Status
-	SelectedIndex  int
-	Empty          bool
-	Loading        bool
-	Message        string
-	Width          int
-	Height         int
-	ShowHelp       bool
-	PasswordPrompt bool
-	PasswordServer string
-	PasswordInput  string
-	UpdateConfirm  bool
-	UpdateServer   string
-	Notice         string
-	NoticeError    bool
-	CanUpdate      bool
-	ShellActive    bool
-	ShellUpdate    bool
-	UpdateRunning  bool
-	ShellServer    string
-	ShellContent   string
-	ShellStatus    string
+	Version         string
+	ConfigPath      string
+	Table           string
+	Statuses        []server.Status
+	Selected        *server.Status
+	SelectedIndex   int
+	Empty           bool
+	Loading         bool
+	Message         string
+	Width           int
+	Height          int
+	ShowHelp        bool
+	PasswordPrompt  bool
+	PasswordServer  string
+	PasswordInput   string
+	UpdateConfirm   bool
+	UpdateServer    string
+	Notice          string
+	NoticeError     bool
+	CanUpdate       bool
+	ShellActive     bool
+	ShellUpdate     bool
+	UpdateRunning   bool
+	ShellScrollback int
+	ShellServer     string
+	ShellContent    string
+	ShellStatus     string
 }
 
 func Render(data DashboardData) string {
@@ -402,13 +403,27 @@ func fleetSummary(data DashboardData) string {
 func renderMenu(data DashboardData) string {
 	if data.ShellActive {
 		if data.UpdateRunning {
-			return fitMenuHints([]string{menuHint("SSH/sudo prompt", "type here"), menuHint("ctrl+c", "interrupt update")}, data.Width)
+			return fitMenuHints([]string{
+				menuHint("SSH/sudo prompt", "type here"),
+				menuHint("wheel", "scroll"),
+				menuHint("shift+pgup", "scroll back"),
+				menuHint("shift+pgdn", "return live"),
+				menuHint("ctrl+c", "interrupt update"),
+			}, data.Width)
 		}
 		closeLabel := "close SSH"
 		if data.ShellUpdate {
 			closeLabel = "close update details"
 		}
-		hints := []string{menuHint("ctrl+]", closeLabel), menuHint("drag", "select text"), menuHint("ctrl+y", "copy"), menuHint("esc", "clear")}
+		hints := []string{
+			menuHint("wheel", "scroll"),
+			menuHint("shift+pgup", "scroll back"),
+			menuHint("shift+pgdn", "return live"),
+			menuHint("ctrl+]", closeLabel),
+			menuHint("drag", "select text"),
+			menuHint("ctrl+y", "copy"),
+			menuHint("esc", "clear"),
+		}
 		return fitMenuHints(hints, data.Width)
 	}
 	if data.PasswordPrompt {

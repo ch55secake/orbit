@@ -31,6 +31,17 @@ func (m *app) selectShell(msg tea.MouseMsg) {
 	inside := mouse.X >= bounds.X && mouse.X < bounds.X+bounds.Width && mouse.Y >= bounds.Y && mouse.Y < bounds.Y+bounds.Height
 	position := uv.Position{X: min(max(mouse.X-bounds.X, 0), bounds.Width-1), Y: min(max(mouse.Y-bounds.Y, 0), bounds.Height-1)}
 	switch msg.(type) {
+	case tea.MouseWheelMsg:
+		if !inside {
+			return
+		}
+		m.shellSelection = nil
+		switch mouse.Button {
+		case tea.MouseWheelUp:
+			m.shellSession.Scroll(3)
+		case tea.MouseWheelDown:
+			m.shellSession.Scroll(-3)
+		}
 	case tea.MouseClickMsg:
 		if mouse.Button != tea.MouseLeft {
 			return

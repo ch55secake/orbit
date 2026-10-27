@@ -19,5 +19,8 @@ func (*Session) Cursor() (uv.Position, bool)   { return uv.Position{}, false }
 func (*Session) Result() (bool, error)         { return true, nil }
 func (*Session) SendKey(uv.KeyPressEvent) bool { return false }
 func (*Session) Paste(string) bool             { return false }
+func (*Session) Scroll(int) int                { return 0 }
+func (*Session) ScrollOffset() int             { return 0 }
+func (*Session) ScrollbackLen() int            { return 0 }
 func (*Session) Resize(int, int) error         { return nil }
 func (*Session) Close()                        {}

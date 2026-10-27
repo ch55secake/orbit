@@ -48,6 +48,39 @@ func TestPTYInputResizeAndExit(t *testing.T) {
 	}
 }
 
+func TestScrollbackCanBeNavigatedAndReturnsToLiveScreen(t *testing.T) {
+	command := "i=1; while [ $i -le 20 ]; do printf 'line%02d\\n' $i; i=$((i+1)); done; printf 'DONE\\n'; exec sleep 60"
+	s, err := Start(exec.Command("sh", "-c", command), 30, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	await(t, s, func() bool { return s.ScrollbackLen() > 0 && strings.Contains(s.Render(), "DONE") })
+
+	live := ansi.Strip(s.Render())
+	if strings.Contains(live, "line01") {
+		t.Fatalf("live screen unexpectedly starts at the oldest output: %q", live)
+	}
+	if offset := s.Scroll(3); offset != 3 {
+		t.Fatalf("scroll offset = %d, want 3", offset)
+	}
+	if scrolled := ansi.Strip(s.Render()); scrolled == live {
+		t.Fatal("scrolling did not change the visible terminal output")
+	}
+	if s.Scroll(10000) != s.ScrollbackLen() {
+		t.Fatal("scrolling past history did not clamp at the oldest line")
+	}
+	if oldest := ansi.Strip(s.Render()); !strings.Contains(oldest, "line01") {
+		t.Fatalf("oldest scrollback output is not visible: %q", oldest)
+	}
+	if offset := s.Scroll(-10000); offset != 0 {
+		t.Fatalf("scrolling forward returned offset %d, want live offset 0", offset)
+	}
+	if got := ansi.Strip(s.Render()); got != live {
+		t.Fatalf("returning live did not restore the current screen:\n got %q\nwant %q", got, live)
+	}
+}
+
 func TestEmulatorHandlesControlSequencesAndAlternateScreen(t *testing.T) {
 	s, err := Start(exec.Command("sh", "-c", "printf '\033[2J\033[Horiginal\033[?1049halternate\033[?1049l\033[2;1Hsecond'; exit 7"), 30, 5)
 	if err != nil {

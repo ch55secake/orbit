@@ -234,6 +234,17 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.shellSelection = nil
+			key := uv.KeyPressEvent(msg).Key()
+			if key.Mod == uv.ModShift {
+				switch key.Code {
+				case uv.KeyPgUp:
+					m.shellSession.Scroll(max(m.shellBounds.Height-1, 1))
+					return m, nil
+				case uv.KeyPgDown:
+					m.shellSession.Scroll(-max(m.shellBounds.Height-1, 1))
+					return m, nil
+				}
+			}
 			if msg.String() == "ctrl+]" {
 				if m.updateRunning {
 					m.shellStatus = "update running · wait for completion"
@@ -479,32 +490,37 @@ func (m *app) dashboardData() views.DashboardData {
 	if m.updateTarget != nil {
 		updateServer = m.updateTarget.Name
 	}
+	shellScrollback := 0
+	if m.shellSession != nil {
+		shellScrollback = m.shellSession.ScrollOffset()
+	}
 	data := views.DashboardData{
-		Version:        m.version,
-		ConfigPath:     m.configPath,
-		Table:          m.table.View(),
-		Statuses:       m.statuses,
-		Selected:       selected,
-		SelectedIndex:  m.table.Cursor(),
-		Empty:          len(m.cfg.Servers) == 0,
-		Loading:        m.loading,
-		Message:        m.message,
-		Width:          m.width,
-		Height:         m.height,
-		ShowHelp:       m.showHelp,
-		PasswordPrompt: m.passwordRequest != nil,
-		PasswordServer: passwordServer,
-		PasswordInput:  strings.Repeat("•", utf8.RuneCount(m.passwordInput)),
-		UpdateConfirm:  m.updateTarget != nil,
-		UpdateServer:   updateServer,
-		Notice:         m.notice,
-		NoticeError:    m.noticeError,
-		CanUpdate:      selected != nil && !m.loading && update.Validate(selected.Server, "latest") == nil,
-		ShellActive:    m.shellSession != nil,
-		ShellUpdate:    m.shellUpdate,
-		UpdateRunning:  m.updateRunning,
-		ShellServer:    m.shellServer,
-		ShellStatus:    m.shellStatus,
+		Version:         m.version,
+		ConfigPath:      m.configPath,
+		Table:           m.table.View(),
+		Statuses:        m.statuses,
+		Selected:        selected,
+		SelectedIndex:   m.table.Cursor(),
+		Empty:           len(m.cfg.Servers) == 0,
+		Loading:         m.loading,
+		Message:         m.message,
+		Width:           m.width,
+		Height:          m.height,
+		ShowHelp:        m.showHelp,
+		PasswordPrompt:  m.passwordRequest != nil,
+		PasswordServer:  passwordServer,
+		PasswordInput:   strings.Repeat("•", utf8.RuneCount(m.passwordInput)),
+		UpdateConfirm:   m.updateTarget != nil,
+		UpdateServer:    updateServer,
+		Notice:          m.notice,
+		NoticeError:     m.noticeError,
+		CanUpdate:       selected != nil && !m.loading && update.Validate(selected.Server, "latest") == nil,
+		ShellActive:     m.shellSession != nil,
+		ShellUpdate:     m.shellUpdate,
+		UpdateRunning:   m.updateRunning,
+		ShellScrollback: shellScrollback,
+		ShellServer:     m.shellServer,
+		ShellStatus:     m.shellStatus,
 	}
 	if m.shellSession != nil {
 		data.ShellContent = m.shellSession.Render()
@@ -538,7 +554,7 @@ func (m *app) View() tea.View {
 	if m.shellSession != nil {
 		view.MouseMode = tea.MouseModeCellMotion
 	}
-	if m.shellSession != nil && m.shellSelection == nil && m.shellStatus == "" && views.TerminalBounds(data).Fits() {
+	if m.shellSession != nil && m.shellSession.ScrollOffset() == 0 && m.shellSelection == nil && m.shellStatus == "" && views.TerminalBounds(data).Fits() {
 		position, visible := m.shellSession.Cursor()
 		if visible {
 			view.Cursor = tea.NewCursor(m.shellBounds.X+position.X, m.shellBounds.Y+position.Y)
