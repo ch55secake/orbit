@@ -13,6 +13,7 @@ import (
 	"github.com/ch55secake/orbit/internal/config"
 	"github.com/ch55secake/orbit/internal/shell"
 	"github.com/ch55secake/orbit/internal/tui/views"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -147,5 +148,61 @@ func TestEmbeddedShellShortSplitLayoutFits(t *testing.T) {
 	_, cmd := model.Update(keyPress("ctrl+]"))
 	if cmd != nil || model.shellSession != nil {
 		t.Fatal("undersized warning prevented closing shell")
+	}
+}
+
+func TestEmbeddedShellMouseAndKeyboardScrollback(t *testing.T) {
+	model, _ := testApp([]config.Server{updateServer("alpha")})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	bounds := views.TerminalBounds(model.dashboardData())
+	command := "i=1; while [ $i -le 50 ]; do printf 'line%02d\\n' $i; i=$((i+1)); done; printf 'DONE\\n'; exec sleep 60"
+	session, err := shell.Start(exec.Command("sh", "-c", command), bounds.Width, bounds.Height)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.shellSession, model.shellBounds, model.shellServer = session, bounds, "alpha"
+	t.Cleanup(model.closeShell)
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for session.ScrollbackLen() == 0 || !strings.Contains(session.Render(), "DONE") {
+		select {
+		case <-session.Events():
+		case <-timer.C:
+			t.Fatalf("shell output did not fill scrollback: %q", ansi.Strip(session.Render()))
+		}
+	}
+
+	live := ansi.Strip(session.Render())
+	model.Update(tea.MouseWheelMsg{X: bounds.X + 1, Y: bounds.Y + 1, Button: tea.MouseWheelUp})
+	wheelOffset := session.ScrollOffset()
+	if wheelOffset == 0 || ansi.Strip(session.Render()) == live {
+		t.Fatal("mouse wheel did not scroll the embedded terminal")
+	}
+	if view := model.View(); view.Cursor != nil {
+		t.Fatal("cursor remained visible while viewing scrollback")
+	}
+	model.Update(tea.MouseWheelMsg{X: bounds.X + 1, Y: bounds.Y + 1, Button: tea.MouseWheelDown})
+	if session.ScrollOffset() >= wheelOffset {
+		t.Fatal("mouse wheel down did not return toward the live screen")
+	}
+
+	beforePageUp := session.ScrollOffset()
+	model.Update(tea.KeyPressMsg(tea.Key{Code: uv.KeyPgUp, Mod: uv.ModShift}))
+	afterPageUp := session.ScrollOffset()
+	if afterPageUp <= beforePageUp {
+		t.Fatal("Shift+PageUp did not move farther into scrollback")
+	}
+	model.Update(tea.KeyPressMsg(tea.Key{Code: uv.KeyPgDown, Mod: uv.ModShift}))
+	if session.ScrollOffset() >= afterPageUp {
+		t.Fatal("Shift+PageDown did not move toward the live screen")
+	}
+	for session.ScrollOffset() > 0 {
+		model.Update(tea.KeyPressMsg(tea.Key{Code: uv.KeyPgDown, Mod: uv.ModShift}))
+	}
+	if session.ScrollOffset() != 0 || ansi.Strip(session.Render()) != live {
+		t.Fatal("Shift+PageDown did not restore the live terminal screen")
+	}
+	if view := model.View(); view.Cursor == nil {
+		t.Fatal("cursor was not restored on the live screen")
 	}
 }

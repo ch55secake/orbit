@@ -1,10 +1,12 @@
 package views
 
 import (
+	"fmt"
+	"strings"
+
 	"charm.land/lipgloss/v2"
 	"github.com/ch55secake/orbit/internal/tui/styles"
 	"github.com/charmbracelet/x/ansi"
-	"strings"
 )
 
 type TerminalGeometry struct{ X, Y, Width, Height int }
@@ -76,6 +78,9 @@ func renderTerminal(data DashboardData, width int) string {
 	}
 	if data.ShellStatus != "" {
 		title += " · " + data.ShellStatus
+	}
+	if data.ShellScrollback > 0 {
+		title += fmt.Sprintf(" · scrollback %d lines", data.ShellScrollback)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left,
 		styles.Title.Render(ansi.Truncate(title, width, "…")),
