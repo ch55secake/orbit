@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -13,11 +15,12 @@ import (
 	"github.com/ch55secake/orbit/internal/server"
 	"github.com/ch55secake/orbit/internal/sshclient"
 	"github.com/ch55secake/orbit/internal/tunnel"
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 )
 
 func servicesCommand(configPath *string) *cobra.Command {
-	command := &cobra.Command{Use: "services", Short: "Browse authorized systemd services through Stardust (read-only)"}
+	command := &cobra.Command{Use: "services", Short: "Browse authorized systemd services through Stardust"}
 	var query client.ServiceQuery
 	list := &cobra.Command{Use: "list <server>", Short: "List one page of authorized services", Args: cobra.ExactArgs(1)}
 	list.Flags().IntVar(&query.Limit, "limit", 20, "page size (1–50)")
@@ -60,8 +63,249 @@ func servicesCommand(configPath *string) *cobra.Command {
 	logs.Flags().StringVar(&before, "before", "", "opaque cursor for older history")
 	logs.Flags().StringVar(&after, "after", "", "opaque cursor for follow/reconnect")
 	logs.Flags().BoolVar(&follow, "follow", false, "poll for new entries until canceled")
-	command.AddCommand(list, detail, logs)
+	var yes bool
+	restart := &cobra.Command{
+		Use:   "restart <server> <unit.service>",
+		Short: "Restart an explicitly authorized systemd service",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runServiceRestart(cmd, *configPath, args[0], args[1], yes)
+		},
+	}
+	restart.Flags().BoolVar(&yes, "yes", false, "confirm restart without an interactive prompt")
+	operationStatus := &cobra.Command{
+		Use:   "operation <server> <operation_id>",
+		Short: "Inspect a systemd restart operation without issuing a mutation",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runServiceRestartStatus(cmd, *configPath, args[0], args[1])
+		},
+	}
+	command.AddCommand(list, detail, logs, restart, operationStatus)
 	return command
+}
+
+func runServiceRestartStatus(cmd *cobra.Command, path, name, operationID string) (runErr error) {
+	if !client.ValidServiceRestartOperationID(operationID) {
+		return errors.New("a valid restart operation identifier is required")
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	target, err := sshclient.Find(cfg, name)
+	if err != nil {
+		return err
+	}
+	tunnels := tunnel.NewManager()
+	defer func() { runErr = errors.Join(runErr, tunnels.Close()) }()
+	operation, err := server.ReadServiceRestartStatus(cmd.Context(), target, tunnels, promptSSHPassword, operationID)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Restart operation %s for %s: %s", operation.ID, client.ServiceText(operation.Unit), client.ServiceText(operation.State)); err != nil {
+		return err
+	}
+	if operation.JobResult != "" {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), " (%s)", client.ServiceText(operation.JobResult)); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+		return err
+	}
+	if operation.ErrorCode != "" {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Operation detail: %s\n", client.ServiceRestartErrorText(operation.ErrorCode)); err != nil {
+			return err
+		}
+	}
+	if operation.ObservationError != "" {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Systemd state observation: %s\n", client.ServiceText(operation.ObservationError)); err != nil {
+			return err
+		}
+	}
+	if operation.State == client.RestartSucceeded {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "Systemd reports the job succeeded; this is not an application health check.")
+		return err
+	}
+	if operation.State == client.RestartTimedOut || operation.State == client.RestartCancelled || operation.State == client.RestartInterrupted {
+		return errors.New("operation outcome is unknown; inspect the service before attempting another restart")
+	}
+	if operation.State == client.RestartFailed {
+		return errors.New("systemd reported that the restart job failed")
+	}
+	return nil
+}
+
+func runServiceRestart(cmd *cobra.Command, path, name, unit string, yes bool) (runErr error) {
+	if !client.ValidServiceUnit(unit) {
+		return errors.New("a valid .service unit name is required")
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	target, err := sshclient.Find(cfg, name)
+	if err != nil {
+		return err
+	}
+	tunnels := tunnel.NewManager()
+	defer func() { runErr = errors.Join(runErr, tunnels.Close()) }()
+	if _, _, err := server.ReadServiceRestartAccess(cmd.Context(), target, tunnels, promptSSHPassword, unit); err != nil {
+		return err
+	}
+	if err := confirmServiceRestart(cmd.InOrStdin(), cmd.ErrOrStderr(), target.Name, unit, yes, term.IsTerminal(os.Stdin.Fd())); err != nil {
+		return err
+	}
+	key, err := client.NewServiceRestartKey()
+	if err != nil {
+		return err
+	}
+	operation, err := server.StartServiceRestart(cmd.Context(), target, tunnels, promptSSHPassword, unit, key)
+	if err != nil {
+		var serviceErr *client.ServiceError
+		if errors.As(err, &serviceErr) && serviceErr.Code == "restart_transport" {
+			_, detail, refreshErr := server.ReadServices(cmd.Context(), target, tunnels, promptSSHPassword, client.ServiceQuery{}, unit)
+			if refreshErr == nil && detail != nil {
+				if _, writeErr := fmt.Fprintln(cmd.ErrOrStderr(), "Latest systemd state after an ambiguous restart request (not application health):"); writeErr != nil {
+					return writeErr
+				}
+				if writeErr := printServiceDetail(cmd.ErrOrStderr(), *detail); writeErr != nil {
+					return writeErr
+				}
+			}
+		}
+		return err
+	}
+	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Restart operation %s accepted for %s on %s.\n", operation.ID, client.ServiceText(unit), client.ServiceText(target.Name)); err != nil {
+		return err
+	}
+	operation, err = waitServiceRestart(cmd.Context(), operation, func(ctx context.Context, id string) (client.ServiceRestartOperation, error) {
+		return server.ReadServiceRestartStatus(ctx, target, tunnels, promptSSHPassword, id)
+	}, 500*time.Millisecond, 40*time.Second)
+	if err != nil {
+		if operation.ID != "" {
+			_, detail, refreshErr := server.ReadServices(cmd.Context(), target, tunnels, promptSSHPassword, client.ServiceQuery{}, unit)
+			if refreshErr == nil && detail != nil {
+				if _, writeErr := fmt.Fprintln(cmd.ErrOrStderr(), "Latest systemd state (not an application health check):"); writeErr != nil {
+					return writeErr
+				}
+				if writeErr := printServiceDetail(cmd.ErrOrStderr(), *detail); writeErr != nil {
+					return writeErr
+				}
+			}
+		}
+		return err
+	}
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Restart operation %s: %s", operation.ID, operation.State); err != nil {
+		return err
+	}
+	if operation.JobResult != "" {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), " (%s)", client.ServiceText(operation.JobResult)); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+		return err
+	}
+	if operation.ErrorCode != "" {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Operation detail: %s\n", client.ServiceRestartErrorText(operation.ErrorCode)); err != nil {
+			return err
+		}
+	}
+	if operation.ObservationError != "" {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Systemd state observation: %s\n", client.ServiceText(operation.ObservationError)); err != nil {
+			return err
+		}
+	}
+	_, detail, refreshErr := server.ReadServices(cmd.Context(), target, tunnels, promptSSHPassword, client.ServiceQuery{}, unit)
+	if refreshErr != nil {
+		if _, writeErr := fmt.Fprintf(cmd.ErrOrStderr(), "Service detail refresh failed: %s\n", client.ServiceText(refreshErr.Error())); writeErr != nil {
+			return writeErr
+		}
+	} else if detail != nil {
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Current systemd state (not application health):"); err != nil {
+			return err
+		}
+		if err := printServiceDetail(cmd.OutOrStdout(), *detail); err != nil {
+			return err
+		}
+	}
+	switch operation.State {
+	case client.RestartSucceeded:
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Systemd reported the restart job succeeded; this is not an application health check."); err != nil {
+			return err
+		}
+	case client.RestartFailed:
+		return errors.New("systemd reported that the restart job failed")
+	case client.RestartTimedOut, client.RestartCancelled, client.RestartInterrupted:
+		return fmt.Errorf("restart outcome is unknown (%s); inspect the operation and service before attempting another restart", operation.State)
+	default:
+		return fmt.Errorf("restart operation ended in unexpected state %q", client.ServiceText(operation.State))
+	}
+	return nil
+}
+
+func confirmServiceRestart(in io.Reader, out io.Writer, serverName, unit string, yes, interactive bool) error {
+	if yes {
+		return nil
+	}
+	if !interactive {
+		return errors.New("service restart requires explicit confirmation; rerun interactively or pass --yes")
+	}
+	phrase := "restart " + serverName + " " + unit
+	if _, err := fmt.Fprintf(out, "Restart %s on %s? This may interrupt the service. Type %q to confirm: ", client.ServiceText(unit), client.ServiceText(serverName), phrase); err != nil {
+		return err
+	}
+	line, err := bufio.NewReader(io.LimitReader(in, 256)).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return errors.New("could not read restart confirmation")
+	}
+	if strings.TrimSpace(line) != phrase {
+		return errors.New("service restart canceled; no restart request was sent")
+	}
+	return nil
+}
+
+type serviceRestartStatusFunc func(context.Context, string) (client.ServiceRestartOperation, error)
+
+func waitServiceRestart(ctx context.Context, operation client.ServiceRestartOperation, read serviceRestartStatusFunc, interval, timeout time.Duration) (client.ServiceRestartOperation, error) {
+	if operation.State != client.RestartRunning {
+		return operation, nil
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		select {
+		case <-ctx.Done():
+			return operation, fmt.Errorf("restart operation %s remains unresolved; outcome is unknown, inspect the service before retrying: %w", operation.ID, ctx.Err())
+		case <-deadline.C:
+			if lastErr != nil {
+				return operation, fmt.Errorf("restart operation %s remains unresolved; outcome is unknown, inspect the service before retrying: %w", operation.ID, lastErr)
+			}
+			return operation, fmt.Errorf("restart operation %s is still running; outcome is unknown, inspect the operation before retrying", operation.ID)
+		case <-ticker.C:
+			updated, err := read(ctx, operation.ID)
+			if err != nil {
+				lastErr = err
+				if !client.RetryableRestartStatusError(err) {
+					return operation, fmt.Errorf("restart operation %s could not be reconciled; outcome is unknown, inspect the service before retrying: %w", operation.ID, err)
+				}
+				continue
+			}
+			if updated.ID != operation.ID || updated.Unit != operation.Unit {
+				return operation, fmt.Errorf("restart operation %s returned a mismatched unit identity; outcome remains unknown", operation.ID)
+			}
+			lastErr = nil
+			operation = updated
+			if operation.State != client.RestartRunning {
+				return operation, nil
+			}
+		}
+	}
 }
 
 func runServiceLogs(cmd *cobra.Command, path, name, unit string, query client.ServiceLogQuery, follow bool) (runErr error) {

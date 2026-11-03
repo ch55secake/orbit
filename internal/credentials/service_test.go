@@ -69,3 +69,17 @@ func TestServiceLogTokenUsesPrivateFilePolicy(t *testing.T) {
 		t.Fatalf("missing log token setting was not actionable: %v", err)
 	}
 }
+
+func TestServiceRestartTokenUsesPrivateFilePolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "restart-token")
+	if err := os.WriteFile(path, []byte(testToken+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	token, err := ServiceRestartToken(path)
+	if err != nil || token != testToken {
+		t.Fatalf("service restart token: %q %v", token, err)
+	}
+	if _, err := ServiceRestartToken(""); err == nil || !strings.Contains(err.Error(), "service_restart_token_file") {
+		t.Fatalf("missing restart token setting was not actionable: %v", err)
+	}
+}

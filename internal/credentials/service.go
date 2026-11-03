@@ -17,6 +17,10 @@ func ServiceLogToken(path string) (string, error) {
 	return readServiceToken(path, "service_log_token_file", "service log")
 }
 
+func ServiceRestartToken(path string) (string, error) {
+	return readServiceToken(path, "service_restart_token_file", "service restart")
+}
+
 func readServiceToken(path, setting, label string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("configure %s for this server (a private file containing its %s read token)", setting, label)

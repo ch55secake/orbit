@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,15 +22,17 @@ import (
 )
 
 type ServiceUnit struct {
-	Name          string          `json:"name"`
-	ID            string          `json:"id"`
-	Description   string          `json:"description"`
-	LoadState     string          `json:"load_state"`
-	ActiveState   string          `json:"active_state"`
-	SubState      string          `json:"sub_state"`
-	UnitFileState string          `json:"unit_file_state"`
-	MainPID       uint32          `json:"main_pid"`
-	MainProcess   *ServiceProcess `json:"main_process,omitempty"`
+	Name              string          `json:"name"`
+	ID                string          `json:"id"`
+	Description       string          `json:"description"`
+	LoadState         string          `json:"load_state"`
+	ActiveState       string          `json:"active_state"`
+	SubState          string          `json:"sub_state"`
+	UnitFileState     string          `json:"unit_file_state"`
+	MainPID           uint32          `json:"main_pid"`
+	MainProcess       *ServiceProcess `json:"main_process,omitempty"`
+	RestartAllowed    bool            `json:"restart_allowed,omitempty"`
+	RestartCapability bool            `json:"-"`
 }
 
 type ServiceProcess struct {
@@ -37,8 +41,9 @@ type ServiceProcess struct {
 }
 
 type ServicePage struct {
-	Units      []ServiceUnit `json:"units"`
-	NextCursor string        `json:"next_cursor,omitempty"`
+	Units        []ServiceUnit       `json:"units"`
+	NextCursor   string              `json:"next_cursor,omitempty"`
+	Capabilities ServiceCapabilities `json:"-"`
 }
 
 type ServiceQuery struct {
@@ -47,10 +52,34 @@ type ServiceQuery struct {
 }
 
 type ServiceCapabilities struct {
-	Enabled        bool   `json:"enabled"`
-	Supported      bool   `json:"supported"`
-	Authentication string `json:"authentication"`
-	Logs           bool   `json:"logs"`
+	Enabled               bool   `json:"enabled"`
+	Supported             bool   `json:"supported"`
+	Authentication        string `json:"authentication"`
+	Logs                  bool   `json:"logs"`
+	Restart               bool   `json:"restart"`
+	RestartAuthentication string `json:"restart_authentication,omitempty"`
+}
+
+const (
+	RestartRunning     = "running"
+	RestartSucceeded   = "succeeded"
+	RestartFailed      = "failed"
+	RestartTimedOut    = "timed_out"
+	RestartCancelled   = "cancelled"
+	RestartInterrupted = "interrupted"
+)
+
+type ServiceRestartOperation struct {
+	ID               string     `json:"operation_id"`
+	Unit             string     `json:"unit"`
+	State            string     `json:"state"`
+	RequestedAt      time.Time  `json:"requested_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	JobResult        string     `json:"job_result,omitempty"`
+	ActiveState      string     `json:"active_state,omitempty"`
+	SubState         string     `json:"sub_state,omitempty"`
+	ObservationError string     `json:"observation_error,omitempty"`
+	ErrorCode        string     `json:"error_code,omitempty"`
 }
 
 type ServiceLogEntry struct {
@@ -127,6 +156,32 @@ type ServiceError struct {
 
 func (e *ServiceError) Error() string {
 	switch e.Code {
+	case "restart_unsupported", "restart_disabled":
+		return "Service restart is unavailable; upgrade Stardust or enable its separate restart policy"
+	case "restart_unauthorized":
+		return "Service restart token was rejected; check service_restart_token_file and the agent policy"
+	case "restart_forbidden":
+		return "Service is outside the agent's restart allowlist"
+	case "restart_busy":
+		return "A restart operation for this service is already in progress"
+	case "restart_idempotency_conflict":
+		return "Restart request identity conflicts with a different service; do not retry with a new identity"
+	case "restart_operation_not_found":
+		return "Restart operation was not found or has expired; inspect the service before attempting another restart"
+	case "restart_capacity", "restart_unavailable":
+		return "Service restart operation state is unavailable; inspect the service before retrying"
+	case "restart_permission_denied":
+		return "Stardust lacks permission to restart this service; check its least-privilege systemd policy"
+	case "restart_unit_not_found":
+		return "Service unit no longer exists; refresh the inventory"
+	case "restart_timeout":
+		return "Service restart timed out; its outcome may be unknown, inspect the operation before retrying"
+	case "restart_failed":
+		return "Systemd reported that the service restart failed"
+	case "restart_transport":
+		return "Restart request outcome is unknown after retrying with the same identity; inspect the service before creating another operation"
+	case "restart_status_transport":
+		return "Restart operation status could not be read; its outcome remains unknown"
 	case "unsupported", "services_unsupported", "not_found":
 		return "Service inventory is unsupported; upgrade Stardust or use a systemd Linux host"
 	case "logs_unsupported":
@@ -206,21 +261,22 @@ func (c *ServicesClient) Capabilities(ctx context.Context) (ServiceCapabilities,
 	return response.Services, nil
 }
 
-func (c *ServicesClient) token(ctx context.Context) (string, error) {
+func (c *ServicesClient) token(ctx context.Context) (string, ServiceCapabilities, error) {
 	capabilities, err := c.Capabilities(ctx)
 	if err != nil {
-		return "", err
+		return "", capabilities, err
 	}
 	if !capabilities.Supported {
-		return "", &ServiceError{Code: "unsupported"}
+		return "", capabilities, &ServiceError{Code: "unsupported"}
 	}
 	if !capabilities.Enabled {
-		return "", &ServiceError{Code: "services_disabled"}
+		return "", capabilities, &ServiceError{Code: "services_disabled"}
 	}
 	if capabilities.Authentication != "bearer" {
-		return "", errors.New("unsupported service authentication scheme; upgrade Orbit/Stardust")
+		return "", capabilities, errors.New("unsupported service authentication scheme; upgrade Orbit/Stardust")
 	}
-	return credentials.ServiceToken(c.tokenFile)
+	token, err := credentials.ServiceToken(c.tokenFile)
+	return token, capabilities, err
 }
 
 func (c *ServicesClient) List(ctx context.Context, query ServiceQuery) (ServicePage, error) {
@@ -230,7 +286,7 @@ func (c *ServicesClient) List(ctx context.Context, query ServiceQuery) (ServiceP
 	if query.Limit < 1 || query.Limit > 50 || len(query.Filter) > 255 || (query.Cursor != "" && !ValidServiceUnit(query.Cursor)) {
 		return ServicePage{}, errors.New("invalid service query: limit must be 1–50, filter at most 255 bytes, and cursor a returned unit name")
 	}
-	token, err := c.token(ctx)
+	token, capabilities, err := c.token(ctx)
 	if err != nil {
 		return ServicePage{}, err
 	}
@@ -267,6 +323,7 @@ func (c *ServicesClient) List(ctx context.Context, query ServiceQuery) (ServiceP
 	for index := range response.Data.Units {
 		redactService(&response.Data.Units[index], token)
 	}
+	response.Data.Capabilities = capabilities
 	return response.Data, nil
 }
 
@@ -274,7 +331,7 @@ func (c *ServicesClient) Detail(ctx context.Context, name string) (ServiceUnit, 
 	if !ValidServiceUnit(name) {
 		return ServiceUnit{}, errors.New("a valid .service unit name is required")
 	}
-	token, err := c.token(ctx)
+	token, capabilities, err := c.token(ctx)
 	if err != nil {
 		return ServiceUnit{}, err
 	}
@@ -291,6 +348,7 @@ func (c *ServicesClient) Detail(ctx context.Context, name string) (ServiceUnit, 
 	if response.Data.Name != name {
 		return ServiceUnit{}, errors.New("service detail identity does not match request")
 	}
+	response.Data.RestartCapability = capabilities.Restart
 	redactService(&response.Data, token)
 	return response.Data, nil
 }
@@ -395,6 +453,249 @@ func validLogCursor(cursor string) bool {
 	return true
 }
 
+// NewServiceRestartKey returns a high-entropy, opaque identity for one restart
+// intent. Callers must retain and reuse it if submission needs retrying.
+func NewServiceRestartKey() (string, error) {
+	var random [32]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", errors.New("could not create restart request identity")
+	}
+	return hex.EncodeToString(random[:]), nil
+}
+
+func validServiceRestartKey(key string) bool {
+	if len(key) < 32 || len(key) > 128 {
+		return false
+	}
+	for _, character := range key {
+		if character < 33 || character > 126 {
+			return false
+		}
+	}
+	return true
+}
+
+// Restart submits a single service restart intent. Ambiguous transport or
+// server failures are retried only with the same idempotency key, allowing the
+// producer to return the original operation instead of creating another one.
+func (c *ServicesClient) Restart(ctx context.Context, tokenFile, unit, key string) (ServiceRestartOperation, error) {
+	if !ValidServiceUnit(unit) {
+		return ServiceRestartOperation{}, errors.New("a valid .service unit name is required")
+	}
+	if !validServiceRestartKey(key) {
+		return ServiceRestartOperation{}, errors.New("invalid restart request identity")
+	}
+	capabilities, err := c.Capabilities(ctx)
+	if err != nil {
+		var serviceErr *ServiceError
+		if errors.As(err, &serviceErr) && (serviceErr.Code == "unsupported" || serviceErr.Code == "services_unsupported") {
+			return ServiceRestartOperation{}, &ServiceError{Code: "restart_unsupported", Status: serviceErr.Status}
+		}
+		return ServiceRestartOperation{}, err
+	}
+	if !capabilities.Supported {
+		return ServiceRestartOperation{}, &ServiceError{Code: "restart_unsupported"}
+	}
+	if !capabilities.Restart {
+		return ServiceRestartOperation{}, &ServiceError{Code: "restart_disabled"}
+	}
+	if capabilities.RestartAuthentication != "bearer" {
+		return ServiceRestartOperation{}, errors.New("unsupported service restart authentication scheme; upgrade Orbit/Stardust")
+	}
+	token, err := credentials.ServiceRestartToken(tokenFile)
+	if err != nil {
+		return ServiceRestartOperation{}, err
+	}
+	endpoint := "/api/v1/services/" + url.PathEscape(unit) + "/restart"
+	headers := make(http.Header)
+	headers.Set("Idempotency-Key", key)
+	var response struct {
+		APIVersion string                  `json:"api_version"`
+		Data       ServiceRestartOperation `json:"data"`
+	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		_, requestErr := c.requestBounded(ctx, http.MethodPost, endpoint, token, headers, &response, 64*1024, http.StatusOK, http.StatusAccepted)
+		if requestErr == nil {
+			if response.APIVersion != APIVersion {
+				requestErr = &ServiceError{Code: "restart_transport"}
+			} else if err := validateRestartOperation(response.Data, unit, ""); err != nil {
+				requestErr = &ServiceError{Code: "restart_transport"}
+			} else if restartOperationContainsToken(response.Data, token) {
+				requestErr = &ServiceError{Code: "restart_transport"}
+			} else {
+				redactRestartOperation(&response.Data, token)
+				return response.Data, nil
+			}
+		}
+		lastErr = requestErr
+		if !retryableRestartError(requestErr) || attempt == 2 || ctx.Err() != nil {
+			if ctx.Err() != nil && requestErr != nil {
+				return ServiceRestartOperation{}, fmt.Errorf("%w; restart outcome may be unknown, inspect the service before retrying", requestErr)
+			}
+			return ServiceRestartOperation{}, requestErr
+		}
+		if err := waitRestartRetry(ctx, attempt); err != nil {
+			return ServiceRestartOperation{}, fmt.Errorf("%w; restart outcome may be unknown after an earlier attempt, inspect before retrying", err)
+		}
+		// A response from an earlier attempt must not be reused if the next
+		// attempt fails before returning JSON.
+		response = struct {
+			APIVersion string                  `json:"api_version"`
+			Data       ServiceRestartOperation `json:"data"`
+		}{}
+	}
+	return ServiceRestartOperation{}, lastErr
+}
+
+// RestartStatus fetches an existing operation using the separate restart
+// credential. It never creates or retries a mutation.
+func (c *ServicesClient) RestartStatus(ctx context.Context, tokenFile, operationID string) (ServiceRestartOperation, error) {
+	if !validOperationID(operationID) {
+		return ServiceRestartOperation{}, errors.New("invalid restart operation identifier")
+	}
+	capabilities, err := c.Capabilities(ctx)
+	if err != nil {
+		var serviceErr *ServiceError
+		if errors.As(err, &serviceErr) && (serviceErr.Code == "unsupported" || serviceErr.Code == "services_unsupported") {
+			return ServiceRestartOperation{}, &ServiceError{Code: "restart_unsupported", Status: serviceErr.Status}
+		}
+		return ServiceRestartOperation{}, err
+	}
+	if !capabilities.Supported {
+		return ServiceRestartOperation{}, &ServiceError{Code: "restart_unsupported"}
+	}
+	if !capabilities.Restart {
+		return ServiceRestartOperation{}, &ServiceError{Code: "restart_disabled"}
+	}
+	if capabilities.RestartAuthentication != "bearer" {
+		return ServiceRestartOperation{}, errors.New("unsupported service restart authentication scheme; upgrade Orbit/Stardust")
+	}
+	token, err := credentials.ServiceRestartToken(tokenFile)
+	if err != nil {
+		return ServiceRestartOperation{}, err
+	}
+	var response struct {
+		APIVersion string                  `json:"api_version"`
+		Data       ServiceRestartOperation `json:"data"`
+	}
+	if _, err := c.requestBounded(ctx, http.MethodGet, "/api/v1/service-operations/"+url.PathEscape(operationID), token, nil, &response, 64*1024, http.StatusOK); err != nil {
+		return ServiceRestartOperation{}, err
+	}
+	if response.APIVersion != APIVersion || validateRestartOperation(response.Data, "", operationID) != nil || restartOperationContainsToken(response.Data, token) {
+		return ServiceRestartOperation{}, errors.New("invalid service restart operation response")
+	}
+	redactRestartOperation(&response.Data, token)
+	return response.Data, nil
+}
+
+func validateRestartOperation(operation ServiceRestartOperation, expectedUnit, expectedID string) error {
+	if !validOperationID(operation.ID) || (expectedID != "" && operation.ID != expectedID) || !ValidServiceUnit(operation.Unit) || (expectedUnit != "" && operation.Unit != expectedUnit) || operation.RequestedAt.IsZero() {
+		return errors.New("invalid restart operation identity")
+	}
+	switch operation.State {
+	case RestartRunning, RestartSucceeded, RestartFailed, RestartTimedOut, RestartCancelled, RestartInterrupted:
+	default:
+		return errors.New("invalid restart operation state")
+	}
+	if operation.CompletedAt != nil && operation.CompletedAt.Before(operation.RequestedAt) {
+		return errors.New("invalid restart operation timestamps")
+	}
+	return nil
+}
+
+// ServiceRestartErrorText maps the agent's operation error code to safe user-facing text.
+func ServiceRestartErrorText(code string) string {
+	switch code {
+	case "permission_denied":
+		return "Stardust was not permitted by systemd policy to restart this service"
+	case "unit_not_found":
+		return "The systemd unit no longer exists"
+	case "services_unsupported":
+		return "Systemd restart is unsupported on this host"
+	case "restart_failed":
+		return "Systemd reported a failed restart job"
+	case "timeout":
+		return "The restart timed out; its outcome may be unknown"
+	case "cancelled":
+		return "The restart job was canceled; inspect the service state"
+	case "restart_unavailable":
+		return "Stardust could not complete the restart operation; inspect its state"
+	case "":
+		return ""
+	default:
+		return "Stardust operation detail: " + ServiceText(code)
+	}
+}
+
+func validOperationID(id string) bool {
+	if len(id) != 32 || id != strings.ToLower(id) {
+		return false
+	}
+	_, err := hex.DecodeString(id)
+	return err == nil
+}
+
+// ValidServiceRestartOperationID checks an opaque operation ID before network access.
+func ValidServiceRestartOperationID(id string) bool { return validOperationID(id) }
+
+func redactRestartOperation(operation *ServiceRestartOperation, token string) {
+	operation.Unit = strings.ReplaceAll(operation.Unit, token, "[redacted]")
+	operation.JobResult = strings.ReplaceAll(operation.JobResult, token, "[redacted]")
+	operation.ActiveState = strings.ReplaceAll(operation.ActiveState, token, "[redacted]")
+	operation.SubState = strings.ReplaceAll(operation.SubState, token, "[redacted]")
+	operation.ObservationError = strings.ReplaceAll(operation.ObservationError, token, "[redacted]")
+	operation.ErrorCode = strings.ReplaceAll(operation.ErrorCode, token, "[redacted]")
+}
+
+func restartOperationContainsToken(operation ServiceRestartOperation, token string) bool {
+	if token == "" {
+		return false
+	}
+	for _, field := range []string{operation.ID, operation.Unit, operation.State, operation.JobResult, operation.ActiveState, operation.SubState, operation.ObservationError, operation.ErrorCode} {
+		if strings.Contains(field, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func retryableRestartError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var serviceErr *ServiceError
+	if !errors.As(err, &serviceErr) {
+		return false
+	}
+	return serviceErr.Code == "restart_transport" || serviceErr.Status == http.StatusRequestTimeout || serviceErr.Status == http.StatusTooManyRequests || (serviceErr.Code == "" && serviceErr.Status >= 500)
+}
+
+// RetryableRestartStatusError identifies transient status-read failures. A
+// status retry is safe because it never creates or repeats a mutation.
+func RetryableRestartStatusError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var serviceErr *ServiceError
+	if !errors.As(err, &serviceErr) {
+		return false
+	}
+	return serviceErr.Code == "restart_transport" || serviceErr.Code == "restart_status_transport" || serviceErr.Status == http.StatusRequestTimeout || serviceErr.Status == http.StatusTooManyRequests || (serviceErr.Code == "" && serviceErr.Status >= 500)
+}
+
+func waitRestartRetry(ctx context.Context, attempt int) error {
+	delay := time.Duration(attempt+1) * 100 * time.Millisecond
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func redactServiceLogs(page *ServiceLogPage, token string) {
 	page.Unit = strings.ReplaceAll(page.Unit, token, "[redacted]")
 	for index := range page.Entries {
@@ -416,42 +717,109 @@ func (c *ServicesClient) get(ctx context.Context, endpoint, token string, target
 }
 
 func (c *ServicesClient) getBounded(ctx context.Context, endpoint, token string, target any, maxResponse int64) error {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.address+endpoint, nil)
+	_, err := c.requestBounded(ctx, http.MethodGet, endpoint, token, nil, target, maxResponse, http.StatusOK)
+	return err
+}
+
+func (c *ServicesClient) requestBounded(ctx context.Context, method, endpoint, token string, headers http.Header, target any, maxResponse int64, accepted ...int) (int, error) {
+	request, err := http.NewRequestWithContext(ctx, method, c.address+endpoint, nil)
 	if err != nil {
-		return errors.New("cannot create service request")
+		return 0, errors.New("cannot create service request")
 	}
 	request.Header.Set("Accept", "application/json")
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
+	for name, values := range headers {
+		for _, value := range values {
+			request.Header.Add(name, value)
+		}
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return 0, ctx.Err()
 		}
-		return errors.New("service connection failed or timed out; check the agent/tunnel and refresh")
+		if method == http.MethodPost && strings.HasSuffix(endpoint, "/restart") {
+			return 0, &ServiceError{Code: "restart_transport"}
+		}
+		if strings.HasPrefix(endpoint, "/api/v1/service-operations/") {
+			return 0, &ServiceError{Code: "restart_status_transport"}
+		}
+		return 0, errors.New("service connection failed or timed out; check the agent/tunnel and refresh")
 	}
 	defer func() { _ = response.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
 	if err != nil || int64(len(data)) > maxResponse {
-		return errors.New("service response could not be read or exceeded the size limit")
+		if method == http.MethodPost && strings.HasSuffix(endpoint, "/restart") {
+			return response.StatusCode, &ServiceError{Code: "restart_transport"}
+		}
+		if strings.HasPrefix(endpoint, "/api/v1/service-operations/") {
+			return response.StatusCode, &ServiceError{Code: "restart_status_transport"}
+		}
+		return response.StatusCode, errors.New("service response could not be read or exceeded the size limit")
 	}
-	if response.StatusCode != http.StatusOK {
+	statusAccepted := false
+	for _, status := range accepted {
+		if response.StatusCode == status {
+			statusAccepted = true
+			break
+		}
+	}
+	if !statusAccepted {
 		var body ErrorResponse
 		_ = json.Unmarshal(data, &body)
 		// Whitelist codes so even a malicious error code cannot echo secrets.
 		code := ""
 		switch body.Error.Code {
-		case "services_unsupported", "not_found", "services_disabled", "unauthorized", "unit_forbidden", "unit_not_found", "services_permission_denied", "services_timeout", "services_unavailable", "invalid_query", "invalid_unit", "logs_disabled", "logs_unauthorized", "logs_unsupported", "log_unit_forbidden", "log_unit_not_found", "log_cursor_expired", "logs_permission_denied", "logs_timeout", "logs_unavailable", "invalid_log_query":
+		case "services_unsupported", "not_found", "services_disabled", "unauthorized", "unit_forbidden", "unit_not_found", "services_permission_denied", "services_timeout", "services_unavailable", "invalid_query", "invalid_unit", "logs_disabled", "logs_unauthorized", "logs_unsupported", "log_unit_forbidden", "log_unit_not_found", "log_cursor_expired", "logs_permission_denied", "logs_timeout", "logs_unavailable", "invalid_log_query", "restart_disabled", "restart_unavailable", "unit_busy", "idempotency_conflict", "operation_not_found", "restart_capacity":
 			code = body.Error.Code
 		}
 		if response.StatusCode == 404 && endpoint == "/api/v1/capabilities" {
 			code = "unsupported"
 		}
-		return &ServiceError{Code: code, Status: response.StatusCode}
+		if strings.HasSuffix(endpoint, "/restart") || strings.HasPrefix(endpoint, "/api/v1/service-operations/") {
+			code = restartErrorCodeForClient(code)
+		}
+		return response.StatusCode, &ServiceError{Code: code, Status: response.StatusCode}
 	}
 	if err := json.Unmarshal(data, target); err != nil {
-		return errors.New("invalid service API response")
+		if method == http.MethodPost && strings.HasSuffix(endpoint, "/restart") {
+			return response.StatusCode, &ServiceError{Code: "restart_transport"}
+		}
+		if strings.HasPrefix(endpoint, "/api/v1/service-operations/") {
+			return response.StatusCode, &ServiceError{Code: "restart_status_transport"}
+		}
+		return response.StatusCode, errors.New("invalid service API response")
 	}
-	return nil
+	return response.StatusCode, nil
+}
+
+func restartErrorCodeForClient(code string) string {
+	switch code {
+	case "restart_disabled":
+		return "restart_disabled"
+	case "restart_unavailable":
+		return "restart_unavailable"
+	case "unit_busy":
+		return "restart_busy"
+	case "idempotency_conflict":
+		return "restart_idempotency_conflict"
+	case "operation_not_found":
+		return "restart_operation_not_found"
+	case "restart_capacity":
+		return "restart_capacity"
+	case "unauthorized":
+		return "restart_unauthorized"
+	case "unit_forbidden":
+		return "restart_forbidden"
+	case "services_unsupported", "not_found":
+		return "restart_unsupported"
+	case "unit_not_found":
+		return "restart_unit_not_found"
+	case "services_permission_denied":
+		return "restart_permission_denied"
+	default:
+		return code
+	}
 }

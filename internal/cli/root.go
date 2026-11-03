@@ -93,7 +93,7 @@ func serversCommand(configPath *string) *cobra.Command {
 }
 
 func addServerCommand(configPath *string) *cobra.Command {
-	var name, address, description, serviceTokenFile, serviceLogTokenFile string
+	var name, address, description, serviceTokenFile, serviceLogTokenFile, serviceRestartTokenFile string
 	var ssh sshFlags
 	command := &cobra.Command{
 		Use:   "add",
@@ -110,7 +110,7 @@ func addServerCommand(configPath *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cfg.AddServer(config.Server{Name: name, Address: address, Description: description, SSH: sshConfig, ServiceTokenFile: serviceTokenFile, ServiceLogTokenFile: serviceLogTokenFile}); err != nil {
+			if err := cfg.AddServer(config.Server{Name: name, Address: address, Description: description, SSH: sshConfig, ServiceTokenFile: serviceTokenFile, ServiceLogTokenFile: serviceLogTokenFile, ServiceRestartTokenFile: serviceRestartTokenFile}); err != nil {
 				return err
 			}
 			return config.Save(*configPath, cfg)
@@ -121,12 +121,13 @@ func addServerCommand(configPath *string) *cobra.Command {
 	command.Flags().StringVar(&description, "description", "", "optional description")
 	command.Flags().StringVar(&serviceTokenFile, "service-token-file", "", "absolute path to private service read token file (not the token)")
 	command.Flags().StringVar(&serviceLogTokenFile, "service-log-token-file", "", "absolute path to private service log token file (not the token)")
+	command.Flags().StringVar(&serviceRestartTokenFile, "service-restart-token-file", "", "absolute path to private service restart token file (not the token)")
 	ssh.addFlags(command)
 	return command
 }
 
 func editServerCommand(configPath *string) *cobra.Command {
-	var name, newName, address, description, serviceTokenFile, serviceLogTokenFile string
+	var name, newName, address, description, serviceTokenFile, serviceLogTokenFile, serviceRestartTokenFile string
 	var ssh sshFlags
 	var direct bool
 	command := &cobra.Command{
@@ -137,7 +138,7 @@ func editServerCommand(configPath *string) *cobra.Command {
 			if strings.TrimSpace(name) == "" {
 				return fmt.Errorf("--name is required")
 			}
-			if !cmd.Flags().Changed("new-name") && !cmd.Flags().Changed("address") && !cmd.Flags().Changed("description") && !cmd.Flags().Changed("service-token-file") && !cmd.Flags().Changed("service-log-token-file") && !ssh.changed(cmd) && !cmd.Flags().Changed("direct") {
+			if !cmd.Flags().Changed("new-name") && !cmd.Flags().Changed("address") && !cmd.Flags().Changed("description") && !cmd.Flags().Changed("service-token-file") && !cmd.Flags().Changed("service-log-token-file") && !cmd.Flags().Changed("service-restart-token-file") && !ssh.changed(cmd) && !cmd.Flags().Changed("direct") {
 				return fmt.Errorf("at least one server setting must be provided")
 			}
 			if direct && ssh.changed(cmd) {
@@ -167,6 +168,7 @@ func editServerCommand(configPath *string) *cobra.Command {
 				if updated.Address != strings.TrimSpace(address) {
 					updated.ServiceTokenFile = ""
 					updated.ServiceLogTokenFile = ""
+					updated.ServiceRestartTokenFile = ""
 				}
 				updated.Address = address
 			}
@@ -175,6 +177,9 @@ func editServerCommand(configPath *string) *cobra.Command {
 			}
 			if cmd.Flags().Changed("service-log-token-file") {
 				updated.ServiceLogTokenFile = serviceLogTokenFile
+			}
+			if cmd.Flags().Changed("service-restart-token-file") {
+				updated.ServiceRestartTokenFile = serviceRestartTokenFile
 			}
 			if cmd.Flags().Changed("description") {
 				updated.Description = description
@@ -205,6 +210,7 @@ func editServerCommand(configPath *string) *cobra.Command {
 	command.Flags().StringVar(&description, "description", "", "new description (empty clears it)")
 	command.Flags().StringVar(&serviceTokenFile, "service-token-file", "", "absolute path to private service read token file (empty clears it)")
 	command.Flags().StringVar(&serviceLogTokenFile, "service-log-token-file", "", "absolute path to private service log token file (empty clears it)")
+	command.Flags().StringVar(&serviceRestartTokenFile, "service-restart-token-file", "", "absolute path to private service restart token file (empty clears it)")
 	command.Flags().BoolVar(&direct, "direct", false, "remove SSH tunnel settings")
 	ssh.addFlags(command)
 	return command
